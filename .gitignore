@@ -1,5 +1,6 @@
 objs/
 dist/
+*.spv
 
 maek-cache.json
 SceneViewer
