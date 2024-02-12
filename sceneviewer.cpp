@@ -22,6 +22,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#include "jsonloader.h"
 #include "rg_WindowManager.h"
 
 const uint32_t WIDTH = 800;
@@ -133,16 +134,141 @@ std::vector<uint16_t> indices = {};
 
 struct Attribute {
     std::string name;
+    std::string src;
+    uint32_t offset;
+    uint32_t stride;
+    std::string format;
+
+    void print() {
+        std::cout << "Attribute Name: " << name << std::endl;
+        std::cout << "    Src: " << src << std::endl;
+        std::cout << "    Offset: " << offset << std::endl;
+        std::cout << "    Stride: " << stride << std::endl;
+        std::cout << "    Format: " << format << std::endl;
+    }
+};
+
+struct Indices {
+    std::string src;
     uint32_t offset;
     std::string format;
 };
 
+struct Node {
+    std::string name;
+    glm::vec3 translation;
+    glm::vec4 rotation;
+    glm::vec3 scale;
+    std::vector<uint16_t> children;
+    std::optional<uint16_t> camera;
+    std::optional<uint16_t> mesh;
+
+    void print() {
+        std::cout << "Name: " << name << std::endl;
+
+        std::cout << "Translation: " << glm::to_string(translation) << std::endl;
+        std::cout << "Rotation: " << glm::to_string(rotation) << std::endl;
+        std::cout << "Scale: " << glm::to_string(scale) << std::endl;
+
+        std::cout << "Children: ";
+        for (uint16_t child : children) {
+            std:: cout << child << " ";
+        }
+        std::cout << std::endl;
+
+        if (camera.has_value()) {
+            std::cout << "Camera: " << camera.value() << std::endl;
+        }
+        
+        if (mesh.has_value()) {
+            std::cout << "Mesh: " << mesh.value() << std::endl;
+        }
+    }
+};
+
 struct Mesh {
-    std::string src;
+    std::string name;
     std::string topology;
     uint32_t vertexCount;
+    std::string src;
     uint32_t stride;
+    Indices indices;
     std::vector<Attribute> attributes;
+
+    void print() {
+        std::cout << "Name: " << name << std::endl;
+        std::cout << "Topology: " << topology << std::endl;
+        std::cout << "Vertex Count: " << vertexCount << std::endl;
+        std::cout << "Src: " << src << std::endl;
+        std::cout << "Stride: " << stride << std::endl;
+
+        if (indices.src != "") {
+            std::cout << "indices.Src: " << indices.src << std::endl;
+            std::cout << "indices.Offset: " << indices.offset << std::endl;
+            std::cout << "indices.Format: " << indices.format << std::endl;
+        }
+
+        for (Attribute& attr : attributes) {
+            attr.print();
+        }
+    }
+};
+
+// assume perspective camera
+struct Camera {
+    std::string name;
+    float aspect;
+    float vfov;
+    float near;
+    float far;
+
+    void print() {
+        std::cout << "Name: " << name << std::endl;
+        std::cout << "Aspect: " << aspect << std::endl;
+        std::cout << "Vfov: " << vfov << std::endl;
+        std::cout << "Near: " << near << std::endl;
+        std::cout << "Far: " << far << std::endl;
+    }
+};
+
+struct Scene {
+    std::vector<Node> nodes;
+    std::vector<Mesh> meshes;
+    std::vector<Camera> cameras;
+    std::vector<uint16_t> roots;
+
+    // maps indices of JSON nodes to the index of the corresponding struct in one of the arrays of the Scene object
+    // EXAMPLE: If the first mesh is at index 5 in the JSON array, then typeIndices[5] == 0.
+    //          Similary, if the first node is at index 3, then typeIndices[3] == 0 as well
+    std::vector<uint16_t> typeIndices;
+
+    void print() {
+        std::cout << "Scene:" << std::endl;
+        
+        std::cout << std::endl << "ROOTS:" << std::endl;
+        for (uint16_t& root : roots) {
+            std::cout << root << " ";
+        }
+        std::cout << std::endl;
+
+        std::cout << std::endl << "CAMERAS:" << std::endl;
+        for (Camera& camera : cameras) {
+            camera.print();
+        }
+        std::cout << std::endl;
+
+        std::cout << std::endl << "NODES:" << std::endl;
+        for (Node& node : nodes) {
+            node.print();
+        }
+        std::cout << std::endl;
+
+        std::cout << std::endl << "MESHES:" << std::endl;
+        for (Mesh& mesh : meshes) {
+            mesh.print();
+        }
+        std::cout << std::endl;
+    }
 };
 
 class HelloTriangleApplication {
@@ -215,7 +341,7 @@ private:
 
     /* SceneGraph variables */
 
-    Mesh cylinderMesh;
+    Scene scene;
 
     /* End SceneGraph variables */
 
@@ -278,7 +404,7 @@ private:
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
-        loadSceneGraph();
+        loadSceneGraph("sg-Support.s72");
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -1203,45 +1329,192 @@ private:
             "failed to create texture sampler");
     }
 
-    void loadSceneGraph() {
+    void loadSceneGraph(std::string filename) {
+        JsonLoader sceneLoader("scenes/" + filename);
 
-        cylinderMesh = {
-            .src = "scenes/sg-Support.Cylinder.b72",
-            .topology = "TRIANGLE_LIST", // TODO: Use this in createGraohicsPipeline
-            .vertexCount = 468,
-            .stride = 28,
-            .attributes = {
-                {
-                    .name = "POSITION",
-                    .offset = 0,
-                    .format = "R32G32B32_SFLOAT"
-                }, {
-                    .name = "NORMAL",
-                    .offset = 12,
-                    .format = "R32G32B32_SFLOAT"
-                }, {
-                    .name = "COLOR",
-                    .offset = 24,
-                    .format = "R8G8B8A8_UNORM"
-                }
-            }
-        };
+        std::cout << "LOADING JSON..." << std::endl << std::endl;
+        JsonLoader::JsonNode* sceneJson = sceneLoader.parseJson();
+
+        sceneLoader.close();
+
+        std::cout << "CONSTRUCTING SCENE..." << std::endl;
+        constructSceneFromJson(scene, sceneJson);
+
+        std::cout << std::endl << "PARSED SCENE" << std::endl;
+        scene.print();
+        std::cout << std::endl;
 
         vertices = {};
         indices = {};
 
-        loadVertices(cylinderMesh);
+        loadVertices(scene.meshes[1]);
 
         std::cout << "TOTAL VERTICES: " << vertices.size() << std::endl;
+    }
+
+    void constructSceneFromJson(Scene& scene, JsonLoader::JsonNode* json) {
+        if (json->type != JsonLoader::JsonNode::Type::ARRAY) {
+            throw std::runtime_error("The root of the scene json should be an array");
+        }
+
+        std::vector<JsonLoader::JsonNode*>& nodes = *std::get<std::vector<JsonLoader::JsonNode*>*>(json->value);
+
+        for (JsonLoader::JsonNode* n : nodes) {
+            JsonLoader::JsonNode& node = *n;
+
+            if (node.type == JsonLoader::JsonNode::Type::STRING && std::get<std::string>(node.value) == "s72-v1") {
+                // This will be the first element of the array, ignore it
+
+                scene.typeIndices.push_back(std::numeric_limits<uint16_t>::max());
+            } else if (node.type == JsonLoader::JsonNode::Type::OBJECT) {
+                std::map<std::string, JsonLoader::JsonNode*>& obj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(node.value);
+
+                std::string sceneType = std::get<std::string>(obj["type"]->value);
+                std::cout << "NODE TYPE: " << sceneType << std::endl;
+
+                if (sceneType == "SCENE") {
+                    scene.typeIndices.push_back(std::numeric_limits<uint16_t>::max());
+
+                    std::vector<JsonLoader::JsonNode*>& roots = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["roots"]->value);
+
+                    for (JsonLoader::JsonNode* root : roots) {
+                        scene.roots.push_back(static_cast<uint16_t>(std::get<float>(root->value)));
+                    }
+                } else if (sceneType == "NODE") {
+                    scene.typeIndices.push_back(scene.nodes.size());
+                    scene.nodes.push_back({});
+
+                    scene.nodes.back().name = std::get<std::string>(obj["name"]->value);
+
+                    if (obj.count("translation") > 0) {
+                        scene.nodes.back().translation = parseVec3(obj["translation"]);
+                    } else {
+                        scene.nodes.back().translation = glm::vec3(0, 0, 0);
+                    }
+
+                    if (obj.count("rotation") > 0) {
+                        scene.nodes.back().rotation = parseVec4(obj["rotation"]);
+                    } else {
+                        scene.nodes.back().rotation = glm::vec4(0, 0, 0, 1);
+                    }
+
+                    if (obj.count("scale") > 0) {
+                        scene.nodes.back().scale = parseVec3(obj["scale"]);
+                    } else {
+                        scene.nodes.back().scale = glm::vec3(1, 1, 1);
+                    }
+
+                    if (obj.count("children") > 0) {
+                        std::vector<JsonLoader::JsonNode*>& children = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["children"]->value);
+
+                        for (JsonLoader::JsonNode* node : children) {
+                            scene.nodes.back().children.push_back(static_cast<uint16_t>(std::get<float>(node->value)));
+                        }
+                    }
+
+                    if (obj.count("camera") > 0) {
+                        scene.nodes.back().camera = static_cast<uint16_t>(std::get<float>(obj["camera"]->value));
+                    }
+
+                    if (obj.count("mesh") > 0) {
+                        scene.nodes.back().mesh = static_cast<uint16_t>(std::get<float>(obj["mesh"]->value));
+                    }
+
+                } else if (sceneType == "MESH") {
+                    scene.typeIndices.push_back(scene.meshes.size());
+                    scene.meshes.push_back({});
+
+                    scene.meshes.back().name = std::get<std::string>(obj["name"]->value);
+                    scene.meshes.back().topology = std::get<std::string>(obj["topology"]->value);
+                    scene.meshes.back().vertexCount = static_cast<uint32_t>(std::get<float>(obj["count"]->value));
+
+                    if (obj.count("indices") > 0) {
+                        std::map<std::string, JsonLoader::JsonNode*>& indices = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["indices"]->value);
+
+                        scene.meshes.back().indices.src = std::get<std::string>(indices["src"]->value);
+                        scene.meshes.back().indices.offset = static_cast<uint32_t>(std::get<float>(indices["offset"]->value));
+                        scene.meshes.back().indices.format = std::get<std::string>(indices["format"]->value);
+                    } else {
+                        scene.meshes.back().indices = { "", 0, ""};
+                    }
+
+                    std::map<std::string, JsonLoader::JsonNode*>& attributes = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["attributes"]->value);
+
+                    scene.meshes.back().attributes.resize(3);
+
+                    for (const std::pair<std::string, JsonLoader::JsonNode*>& attr : attributes) {
+                        std::map<std::string, JsonLoader::JsonNode*>& attrVal = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(attr.second->value);
+
+                        Attribute a = {
+                            attr.first,
+                            std::get<std::string>(attrVal["src"]->value),
+                            static_cast<uint32_t>(std::get<float>(attrVal["offset"]->value)),
+                            static_cast<uint32_t>(std::get<float>(attrVal["stride"]->value)),
+                            std::get<std::string>(attrVal["format"]->value)
+                        };
+
+                        // hack to get attributes in the right order, should really sort by offset
+                        if (a.name == "POSITION") {
+                            scene.meshes.back().attributes[0] = a;
+                        } else if (a.name == "NORMAL") {
+                            scene.meshes.back().attributes[1] = a;
+                        } else if (a.name == "COLOR") {
+                            scene.meshes.back().attributes[2] = a;
+                        }
+                    }
+
+                    // Assume that the src and stride for all attributes are the same
+                    scene.meshes.back().src = scene.meshes.back().attributes[0].src;
+                    scene.meshes.back().stride = scene.meshes.back().attributes[0].stride;
+                } else if (sceneType == "CAMERA") {
+                    scene.typeIndices.push_back(scene.cameras.size());
+                    scene.cameras.push_back({});
+
+                    scene.cameras.back().name = std::get<std::string>(obj["name"]->value);
+
+                    std::map<std::string, JsonLoader::JsonNode*>& perspective = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["perspective"]->value);
+
+                    scene.cameras.back().aspect = std::get<float>(perspective["aspect"]->value);
+                    scene.cameras.back().vfov = std::get<float>(perspective["vfov"]->value);
+                    scene.cameras.back().near = std::get<float>(perspective["near"]->value);
+                    scene.cameras.back().far = std::get<float>(perspective["far"]->value);
+                }
+            } else {
+                std::cout << "UNEXPECTED JSON TYPE!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+            }
+        }
+    }
+
+    glm::vec3 parseVec3(JsonLoader::JsonNode* node) {
+        std::vector<JsonLoader::JsonNode*>& components = *std::get<std::vector<JsonLoader::JsonNode*>*>(node->value);
+
+        return glm::vec3(
+            std::get<float>(components[0]->value),
+            std::get<float>(components[1]->value),
+            std::get<float>(components[2]->value)
+        );
+    }
+
+    glm::vec4 parseVec4(JsonLoader::JsonNode* node) {
+        std::vector<JsonLoader::JsonNode*>& components = *std::get<std::vector<JsonLoader::JsonNode*>*>(node->value);
+
+        return glm::vec4(
+            std::get<float>(components[0]->value),
+            std::get<float>(components[1]->value),
+            std::get<float>(components[2]->value),
+            std::get<float>(components[3]->value)
+        );
     }
 
     void loadVertices(const Mesh& mesh) {
         // Check if I can assume that all vertices for a model are in the same file
 
         std::ifstream vertexData;
-        vertexData.open(mesh.src, std::ios::binary | std::ios::in);
+        // TODO: Remove "scenes/" and move all scene files to the root
+        vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
 
-        std::cout << "DATA: " << std::endl << std::endl;
+        std::cout << "LOADING FROM scenes/" << mesh.src << std::endl;
+        std::cout << "vertex count: " << mesh.vertexCount << std::endl;
 
         // TODO: Maybe I should read directly into a byte array that I can then copy to the vertex buffer in one go
 
@@ -1249,36 +1522,35 @@ private:
             vertices.push_back({});
             indices.push_back(static_cast<uint16_t>(i));
 
+            std::cout << "V" << std::endl;
+
             for (Attribute attr : mesh.attributes) {
                 std::size_t size = getFormatSize(attr.format);
 
                 if (attr.name == "POSITION") {
                     vertexData.read(reinterpret_cast<char*>(&vertices.back().pos), size);
-                    std::cout << attr.name << ": " << glm::to_string(vertices.back().pos) << std::endl;
+                    std::cout << "pos: " << glm::to_string(vertices.back().pos) << std::endl;
                 }
                 else if (attr.name == "NORMAL") {
                     vertexData.read(reinterpret_cast<char*>(&vertices.back().normal), size);
-                    std::cout << attr.name << ": " << glm::to_string(vertices.back().normal) << std::endl;
+                    std::cout << "normal: " << glm::to_string(vertices.back().normal) << std::endl;
                 }
                 else if (attr.name == "COLOR") {
                     uint32_t color;
 
                     vertexData.read(reinterpret_cast<char*>(&color), size);
-                    std::cout << attr.name << ": " << std::hex << color << std::dec << std::endl;
 
                     // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
                     vertices.back().color.r = static_cast<float>((color >> 24) & 0xff) / 255.f;
                     vertices.back().color.g = static_cast<float>((color >> 16) & 0xff) / 255.f;
                     vertices.back().color.b = static_cast<float>((color >> 8) & 0xff) / 255.f;
 
-                    std::cout << attr.name << "(vec3): " << glm::to_string(vertices.back().color) << std::endl;
+                    std::cout << "color: " << glm::to_string(vertices.back().color) << std::endl;
                 }
                 else {
                     std::cout << "Unexpected attribute name: " << attr.name << std::endl;
                 }
             }
-
-            std::cout << std::endl;
         }
 
         vertexData.close();
