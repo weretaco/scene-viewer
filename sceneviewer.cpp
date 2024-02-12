@@ -1483,6 +1483,26 @@ private:
                 std::cout << "UNEXPECTED JSON TYPE!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
             }
         }
+
+        // Fix the indices
+
+        for (size_t i = 0; i < scene.roots.size(); i++) {
+            scene.roots[i] = scene.typeIndices[scene.roots[i]];
+        }
+
+        for (Node& sceneNode : scene.nodes) {
+            for (size_t i = 0; i < sceneNode.children.size(); i++) {
+                sceneNode.children[i] = scene.typeIndices[sceneNode.children[i]];
+            }
+
+            if (sceneNode.camera.has_value()) {
+                sceneNode.camera = scene.typeIndices[sceneNode.camera.value()];
+            }
+
+            if (sceneNode.mesh.has_value()) {
+                sceneNode.mesh = scene.typeIndices[sceneNode.mesh.value()];
+            }
+        }
     }
 
     glm::vec3 parseVec3(JsonLoader::JsonNode* node) {
@@ -1513,27 +1533,20 @@ private:
         // TODO: Remove "scenes/" and move all scene files to the root
         vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
 
-        std::cout << "LOADING FROM scenes/" << mesh.src << std::endl;
-        std::cout << "vertex count: " << mesh.vertexCount << std::endl;
-
         // TODO: Maybe I should read directly into a byte array that I can then copy to the vertex buffer in one go
 
         for (uint32_t i = 0; i < mesh.vertexCount; i++) {
             vertices.push_back({});
             indices.push_back(static_cast<uint16_t>(i));
 
-            std::cout << "V" << std::endl;
-
             for (Attribute attr : mesh.attributes) {
                 std::size_t size = getFormatSize(attr.format);
 
                 if (attr.name == "POSITION") {
                     vertexData.read(reinterpret_cast<char*>(&vertices.back().pos), size);
-                    std::cout << "pos: " << glm::to_string(vertices.back().pos) << std::endl;
                 }
                 else if (attr.name == "NORMAL") {
                     vertexData.read(reinterpret_cast<char*>(&vertices.back().normal), size);
-                    std::cout << "normal: " << glm::to_string(vertices.back().normal) << std::endl;
                 }
                 else if (attr.name == "COLOR") {
                     uint32_t color;
@@ -1544,8 +1557,6 @@ private:
                     vertices.back().color.r = static_cast<float>((color >> 24) & 0xff) / 255.f;
                     vertices.back().color.g = static_cast<float>((color >> 16) & 0xff) / 255.f;
                     vertices.back().color.b = static_cast<float>((color >> 8) & 0xff) / 255.f;
-
-                    std::cout << "color: " << glm::to_string(vertices.back().color) << std::endl;
                 }
                 else {
                     std::cout << "Unexpected attribute name: " << attr.name << std::endl;
