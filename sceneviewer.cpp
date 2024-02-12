@@ -129,9 +129,6 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 proj;
 };
 
-std::vector<Vertex> vertices = {};
-std::vector<uint16_t> indices = {};
-
 struct Attribute {
     std::string name;
     std::string src;
@@ -192,8 +189,29 @@ struct Mesh {
     uint32_t vertexCount;
     std::string src;
     uint32_t stride;
-    Indices indices;
+    Indices indicesData;
     std::vector<Attribute> attributes;
+
+    std::vector<Vertex> vertices;
+    std::vector<uint16_t> indices;
+
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
+
+    VkBuffer indexBuffer;
+    VkDeviceMemory indexBufferMemory;
+
+    void createBuffers(VkDevice device) {
+
+    }
+
+    void cleanupBuffers(VkDevice device) {
+        vkDestroyBuffer(device, indexBuffer, nullptr);
+        vkFreeMemory(device, indexBufferMemory, nullptr);
+
+        vkDestroyBuffer(device, vertexBuffer, nullptr);
+        vkFreeMemory(device, vertexBufferMemory, nullptr);
+    }
 
     void print() {
         std::cout << "Name: " << name << std::endl;
@@ -202,10 +220,10 @@ struct Mesh {
         std::cout << "Src: " << src << std::endl;
         std::cout << "Stride: " << stride << std::endl;
 
-        if (indices.src != "") {
-            std::cout << "indices.Src: " << indices.src << std::endl;
-            std::cout << "indices.Offset: " << indices.offset << std::endl;
-            std::cout << "indices.Format: " << indices.format << std::endl;
+        if (indicesData.src != "") {
+            std::cout << "indices.Src: " << indicesData.src << std::endl;
+            std::cout << "indices.Offset: " << indicesData.offset << std::endl;
+            std::cout << "indices.Format: " << indicesData.format << std::endl;
         }
 
         for (Attribute& attr : attributes) {
@@ -317,12 +335,6 @@ private:
 
     VkSampler textureSampler;
 
-    VkBuffer vertexBuffer;
-    VkDeviceMemory vertexBufferMemory;
-
-    VkBuffer indexBuffer;
-    VkDeviceMemory indexBufferMemory;
-
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
@@ -405,8 +417,6 @@ private:
         createTextureImageView();
         createTextureSampler();
         loadSceneGraph("sg-Support.s72");
-        createVertexBuffer();
-        createIndexBuffer();
         createUniformBuffers();
         createDescriptorPool();
         createDescriptorSets();
@@ -1344,12 +1354,11 @@ private:
         scene.print();
         std::cout << std::endl;
 
-        vertices = {};
-        indices = {};
-
-        loadVertices(scene.meshes[1]);
-
-        std::cout << "TOTAL VERTICES: " << vertices.size() << std::endl;
+        for (Mesh& mesh : scene.meshes) {
+            loadVertices(mesh);
+            createVertexBuffer(mesh);
+            createIndexBuffer(mesh);
+        }
     }
 
     void constructSceneFromJson(Scene& scene, JsonLoader::JsonNode* json) {
@@ -1431,11 +1440,11 @@ private:
                     if (obj.count("indices") > 0) {
                         std::map<std::string, JsonLoader::JsonNode*>& indices = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["indices"]->value);
 
-                        scene.meshes.back().indices.src = std::get<std::string>(indices["src"]->value);
-                        scene.meshes.back().indices.offset = static_cast<uint32_t>(std::get<float>(indices["offset"]->value));
-                        scene.meshes.back().indices.format = std::get<std::string>(indices["format"]->value);
+                        scene.meshes.back().indicesData.src = std::get<std::string>(indices["src"]->value);
+                        scene.meshes.back().indicesData.offset = static_cast<uint32_t>(std::get<float>(indices["offset"]->value));
+                        scene.meshes.back().indicesData.format = std::get<std::string>(indices["format"]->value);
                     } else {
-                        scene.meshes.back().indices = { "", 0, ""};
+                        scene.meshes.back().indicesData = { "", 0, ""};
                     }
 
                     std::map<std::string, JsonLoader::JsonNode*>& attributes = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["attributes"]->value);
@@ -1526,8 +1535,11 @@ private:
         );
     }
 
-    void loadVertices(const Mesh& mesh) {
-        // Check if I can assume that all vertices for a model are in the same file
+    void loadVertices(Mesh& mesh) {
+        // assume that all vertices for a model are in the same file
+
+        mesh.vertices = {};
+        mesh.indices = {};
 
         std::ifstream vertexData;
         // TODO: Remove "scenes/" and move all scene files to the root
@@ -1536,17 +1548,17 @@ private:
         // TODO: Maybe I should read directly into a byte array that I can then copy to the vertex buffer in one go
 
         for (uint32_t i = 0; i < mesh.vertexCount; i++) {
-            vertices.push_back({});
-            indices.push_back(static_cast<uint16_t>(i));
+            mesh.vertices.push_back({});
+            mesh.indices.push_back(static_cast<uint16_t>(i));
 
             for (Attribute attr : mesh.attributes) {
                 std::size_t size = getFormatSize(attr.format);
 
                 if (attr.name == "POSITION") {
-                    vertexData.read(reinterpret_cast<char*>(&vertices.back().pos), size);
+                    vertexData.read(reinterpret_cast<char*>(&mesh.vertices.back().pos), size);
                 }
                 else if (attr.name == "NORMAL") {
-                    vertexData.read(reinterpret_cast<char*>(&vertices.back().normal), size);
+                    vertexData.read(reinterpret_cast<char*>(&mesh.vertices.back().normal), size);
                 }
                 else if (attr.name == "COLOR") {
                     uint32_t color;
@@ -1554,9 +1566,9 @@ private:
                     vertexData.read(reinterpret_cast<char*>(&color), size);
 
                     // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
-                    vertices.back().color.r = static_cast<float>((color >> 24) & 0xff) / 255.f;
-                    vertices.back().color.g = static_cast<float>((color >> 16) & 0xff) / 255.f;
-                    vertices.back().color.b = static_cast<float>((color >> 8) & 0xff) / 255.f;
+                    mesh.vertices.back().color.r = static_cast<float>((color >> 24) & 0xff) / 255.f;
+                    mesh.vertices.back().color.g = static_cast<float>((color >> 16) & 0xff) / 255.f;
+                    mesh.vertices.back().color.b = static_cast<float>((color >> 8) & 0xff) / 255.f;
                 }
                 else {
                     std::cout << "Unexpected attribute name: " << attr.name << std::endl;
@@ -1580,8 +1592,8 @@ private:
         }
     }
 
-    void createVertexBuffer() {
-        VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+    void createVertexBuffer(Mesh& mesh) {
+        VkDeviceSize bufferSize = sizeof(mesh.vertices[0]) * mesh.vertices.size();
 
         VkBuffer stagingBuffer;
         VkDeviceMemory stagingBufferMemory;
@@ -1592,22 +1604,22 @@ private:
 
         void* data;
         vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, vertices.data(), (size_t)bufferSize);
+        memcpy(data, mesh.vertices.data(), (size_t)bufferSize);
         vkUnmapMemory(device, stagingBufferMemory);
 
         createBuffer(bufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            vertexBuffer, vertexBufferMemory);
+            mesh.vertexBuffer, mesh.vertexBufferMemory);
 
-        copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+        copyBuffer(stagingBuffer, mesh.vertexBuffer, bufferSize);
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
-    void createIndexBuffer() {
-        VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+    void createIndexBuffer(Mesh& mesh) {
+        VkDeviceSize bufferSize = sizeof(mesh.indices[0]) * mesh.indices.size();
 
         VkBuffer stagingBuffer;
         VkDeviceMemory stagingBufferMemory;
@@ -1618,15 +1630,15 @@ private:
 
         void* data;
         vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, indices.data(), (size_t)bufferSize);
+        memcpy(data, mesh.indices.data(), (size_t)bufferSize);
         vkUnmapMemory(device, stagingBufferMemory);
 
         createBuffer(bufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            indexBuffer, indexBufferMemory);
+            mesh.indexBuffer, mesh.indexBufferMemory);
 
-        copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+        copyBuffer(stagingBuffer, mesh.indexBuffer, bufferSize);
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
@@ -1975,15 +1987,17 @@ private:
         scissor.extent = swapChainExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        VkBuffer vertexBuffers[] = { vertexBuffer };
-        VkDeviceSize offsets[] = { 0 };
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        for (Mesh& mesh : scene.meshes) {
+            VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
+            VkDeviceSize offsets[] = { 0 };
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-            0, 1, &descriptorSets[currentFrame], 0, nullptr);
+            vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+                0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+            vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
+        }
 
         vkCmdEndRenderPass(commandBuffer);
 
@@ -2043,11 +2057,9 @@ private:
 
         vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
-        vkDestroyBuffer(device, indexBuffer, nullptr);
-        vkFreeMemory(device, indexBufferMemory, nullptr);
-
-        vkDestroyBuffer(device, vertexBuffer, nullptr);
-        vkFreeMemory(device, vertexBufferMemory, nullptr);
+        for (Mesh& mesh : scene.meshes) {
+            mesh.cleanupBuffers(device);
+        }
 
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
