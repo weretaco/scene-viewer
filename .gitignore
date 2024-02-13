@@ -1,5 +1,8 @@
+.vs/
 objs/
 dist/
+Debug/
+x64/
 *.spv
 
 maek-cache.json
