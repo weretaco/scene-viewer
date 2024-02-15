@@ -1389,7 +1389,7 @@ private:
         glm::mat4 rotMat = glm::toMat4(node.rotation);
         glm::mat4 transMat = glm::translate(glm::mat4(1.0), node.translation);
 
-        transform = transMat * rotMat * scaleMat * transform;
+        transform *= transMat * rotMat * scaleMat;
 
         if (node.mesh.has_value()) {
             Mesh mesh = scene.meshes[node.mesh.value()];
