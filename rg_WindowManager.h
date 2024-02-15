@@ -3,8 +3,8 @@
 
 #include <string>
 
-//#include "rg_WindowGLFW.h"
-#include "rg_WindowNativeLinux.h"
+#include "rg_WindowGLFW.h"
+//#include "rg_WindowNativeLinux.h"
 
 #include "rg_Window.h"
 

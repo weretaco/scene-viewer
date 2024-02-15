@@ -17,6 +17,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/string_cast.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -154,7 +155,7 @@ struct Indices {
 struct Node {
     std::string name;
     glm::vec3 translation;
-    glm::vec4 rotation;
+    glm::quat rotation;
     glm::vec3 scale;
     std::vector<uint16_t> children;
     std::optional<uint16_t> camera;
@@ -351,6 +352,8 @@ private:
     bool framebufferResized = false;
     uint32_t currentFrame = 0;
 
+    UniformBufferObject ubo{};
+
     /* SceneGraph variables */
 
     Scene scene;
@@ -422,6 +425,13 @@ private:
         createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
+
+        //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        //ubo.view = glm::lookAt(glm::vec3(10.0f, 10.0f, 10.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        //ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+        //ubo.proj = glm::perspective(0.119856f, 1.77778f, 0.1f, 1000.0f);
+
+        //ubo.proj[1][1] *= -1;
     }
 
     void createInstance() {
@@ -1000,12 +1010,17 @@ private:
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
         dynamicState.pDynamicStates = dynamicStates.data();
 
+        VkPushConstantRange range = {};
+        range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        range.offset = 0;
+        range.size = sizeof(glm::mat4);
+
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount = 1;
         pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-        pipelineLayoutInfo.pushConstantRangeCount = 0;
-        pipelineLayoutInfo.pPushConstantRanges = nullptr;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &range;
 
         vkCheckResult(
             vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout),
@@ -1361,6 +1376,48 @@ private:
         }
     }
 
+    void renderSceneGraph(VkCommandBuffer& commandBuffer, Scene& scene) {
+        for (uint16_t root : scene.roots) {
+            Node rootNode = scene.nodes[root];
+
+            renderNode(commandBuffer, rootNode, glm::mat4(1), scene);
+        }
+    }
+
+    void renderNode(VkCommandBuffer& commandBuffer, Node& node, glm::mat4 transform, Scene& scene) {
+        glm::mat4 scaleMat = glm::scale(glm::mat4(1.0), node.scale);
+        glm::mat4 rotMat = glm::toMat4(node.rotation);
+        glm::mat4 transMat = glm::translate(glm::mat4(1.0), node.translation);
+
+        transform = transMat * rotMat * scaleMat * transform;
+
+        if (node.mesh.has_value()) {
+            Mesh mesh = scene.meshes[node.mesh.value()];
+
+            renderMesh(commandBuffer, mesh, transform);
+        }
+
+        for (uint16_t child : node.children) {
+            Node childNode = scene.nodes[child];
+
+            renderNode(commandBuffer, childNode, transform, scene);
+        }
+    }
+
+    void renderMesh(VkCommandBuffer& commandBuffer, Mesh& mesh, glm::mat4 transform) {
+        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
+
+        VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+        vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+            0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
+    }
+
     void constructSceneFromJson(Scene& scene, JsonLoader::JsonNode* json) {
         if (json->type != JsonLoader::JsonNode::Type::ARRAY) {
             throw std::runtime_error("The root of the scene json should be an array");
@@ -1402,9 +1459,9 @@ private:
                     }
 
                     if (obj.count("rotation") > 0) {
-                        scene.nodes.back().rotation = parseVec4(obj["rotation"]);
+                        scene.nodes.back().rotation = parseQuat(obj["rotation"]);
                     } else {
-                        scene.nodes.back().rotation = glm::vec4(0, 0, 0, 1);
+                        scene.nodes.back().rotation = glm::quat(1, 0, 0, 0);
                     }
 
                     if (obj.count("scale") > 0) {
@@ -1535,6 +1592,17 @@ private:
         );
     }
 
+    glm::quat parseQuat(JsonLoader::JsonNode* node) {
+        std::vector<JsonLoader::JsonNode*>& components = *std::get<std::vector<JsonLoader::JsonNode*>*>(node->value);
+
+        return glm::quat(
+            std::get<float>(components[3]->value),
+            std::get<float>(components[0]->value),
+            std::get<float>(components[1]->value),
+            std::get<float>(components[2]->value)
+        );
+    }
+
     void loadVertices(Mesh& mesh) {
         // assume that all vertices for a model are in the same file
 
@@ -1565,10 +1633,12 @@ private:
 
                     vertexData.read(reinterpret_cast<char*>(&color), size);
 
+                    std::cout << "COLOR: " << std::hex << color << std::endl;
+
                     // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
-                    mesh.vertices.back().color.r = static_cast<float>((color >> 24) & 0xff) / 255.f;
-                    mesh.vertices.back().color.g = static_cast<float>((color >> 16) & 0xff) / 255.f;
-                    mesh.vertices.back().color.b = static_cast<float>((color >> 8) & 0xff) / 255.f;
+                    mesh.vertices.back().color.r = static_cast<float>((color >> 0) & 0xff) / 255.f;
+                    mesh.vertices.back().color.g = static_cast<float>((color >> 8) & 0xff) / 255.f;
+                    mesh.vertices.back().color.b = static_cast<float>((color >> 16) & 0xff) / 255.f;
                 }
                 else {
                     std::cout << "Unexpected attribute name: " << attr.name << std::endl;
@@ -1857,11 +1927,59 @@ private:
 
     void mainLoop() {
         while (!window->windowShouldClose()) {
-            drawFrame();
             window->pollEvents();
+            handleEvents();
+            drawFrame();
         }
 
         vkDeviceWaitIdle(device);
+    }
+
+    void handleEvents() {
+        static auto startTime = std::chrono::high_resolution_clock::now();
+        static int lastUpState = -1;
+        static int lastDownState = -1;
+        static int lastLeftState = -1;
+        static int lastRightState = -1;
+        static glm::mat4 origView = ubo.view;
+
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+        int upState = glfwGetKey((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_KEY_UP);
+        int downState = glfwGetKey((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_KEY_DOWN);
+        int leftState = glfwGetKey((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_KEY_LEFT);
+        int rightState = glfwGetKey((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_KEY_RIGHT);
+
+        if (upState == GLFW_PRESS) {
+            if (lastUpState == GLFW_RELEASE) {
+                startTime = std::chrono::high_resolution_clock::now();
+                origView = ubo.view;
+                std::cout << "PRESSED" << std::endl;
+            }
+
+            //ubo.view = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, time)) * origView;
+        }
+        lastUpState = upState;
+
+        if (downState == GLFW_PRESS) {
+            if (lastDownState == GLFW_RELEASE) {
+                startTime = std::chrono::high_resolution_clock::now();
+                origView = ubo.view;
+                std::cout << "PRESSED" << std::endl;
+            }
+
+            //ubo.view = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, -time)) * origView;
+        }
+        lastDownState = downState;
+
+        if (leftState == GLFW_PRESS) {
+        }
+        lastLeftState = leftState;
+
+        if (rightState == GLFW_PRESS) {
+        }
+        lastRightState = rightState;
     }
 
     void drawFrame() {
@@ -1936,9 +2054,9 @@ private:
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
         UniformBufferObject ubo{};
-        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+        //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.view = glm::lookAt(glm::vec3(50.0f, 10.0f, 50.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.proj = glm::perspective(0.119856f, 1.77778f, 0.1f, 1000.0f);
 
         ubo.proj[1][1] *= -1;
 
@@ -1987,7 +2105,9 @@ private:
         scissor.extent = swapChainExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        for (Mesh& mesh : scene.meshes) {
+        /*for (Mesh& mesh : scene.meshes) {
+            std::cout << std::endl << "ABOUT TO RENDER MESH: " << mesh.name << std::endl;
+
             VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
             VkDeviceSize offsets[] = { 0 };
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
@@ -1997,7 +2117,8 @@ private:
                 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
             vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
-        }
+        }*/
+        renderSceneGraph(commandBuffer, scene);
 
         vkCmdEndRenderPass(commandBuffer);
 
