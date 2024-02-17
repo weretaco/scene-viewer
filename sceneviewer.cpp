@@ -290,9 +290,18 @@ struct Scene {
     }
 };
 
+struct CLIArguments {
+    std::string sceneFile = "";
+    std::string physicalDeviceName = "";
+    bool listPhysicalDevices = false;
+    int width = 0;
+    int height = 0;
+};
+
 class HelloTriangleApplication {
 public:
-    void run() {
+    void run(int argc, char* argv[]) {
+        processCLIArgs(argc, argv);
         initWindow();
         initVulkan();
         mainLoop();
@@ -300,6 +309,8 @@ public:
     }
 
 private:
+    CLIArguments args;
+
     rg_Window* window;
 
     VkInstance instance = VK_NULL_HANDLE;
@@ -394,10 +405,86 @@ private:
         }
     }
 
+    // ./SceneViewer --scene scene.s72 --physical-device name --camera name --drawing-size w h --culling none|frustum|... --headless events
+    void processCLIArgs(int argc, char* argv[]) {
+        args = {
+            .sceneFile = ""
+        };
+
+        std::cout << "CLI ARGS:" << std::endl;
+        for (int i=0; i<argc; i++) {
+            std::string arg(argv[i]);
+
+            if (arg.rfind("--", 0) == 0) {
+                if (arg == "--scene") {
+                    handleArgScene(std::array<std::string, 2>{ argv[i], argv[i+1] });
+                } else if (arg == "--physical-device") {
+                    handleArgPhysicalDevice(std::array<std::string, 2>{ argv[i], argv[i+1] });
+                } else if (arg == "--list-physical-devices") {
+                    handleArgListPhysicalDevices(std::array<std::string, 1>{ argv[i] });
+                } else if (arg == "--camera") {
+                    handleArgCamera(std::array<std::string, 2>{ argv[i], argv[i+1] });
+                } else if (arg == "--drawing-size") {
+                    handleArgDrawingSize(std::array<std::string, 3>{ argv[i], argv[i+1], argv[i+2] });
+                } else if (arg == "--culling") {
+                    handleArgCulling(std::array<std::string, 2>{ argv[i], argv[i+1] });
+                } else if (arg == "--headless") {
+                    handleArgHeadless(std::array<std::string, 2>{ argv[i], argv[i+1] });
+                } else{
+                    std::cout << std::endl << "Unknown command-line argument: " << arg << std::endl;
+                }
+            }
+        }
+    }
+
+    void handleArgScene(const std::array<std::string, 2> &arr) {
+        args.sceneFile = arr[1];
+    }
+
+    void handleArgPhysicalDevice(const std::array<std::string, 2> &arr) {
+        std::cout << std::endl << "Handling " << arr[0] << std::endl;
+        args.physicalDeviceName = arr[1];
+    }
+
+    void handleArgListPhysicalDevices(const std::array<std::string, 1> &arr) {
+        std::cout << std::endl << "Handling " << arr[0] << std::endl;
+        args.listPhysicalDevices = true;
+    }
+
+    void handleArgCamera(const std::array<std::string, 2> &arr) {
+        std::cout << std::endl << "Handling " << arr[0] << std::endl;
+        std::cout << "name: " << arr[1] << std::endl;
+    }
+
+    void handleArgDrawingSize(const std::array<std::string, 3> &arr) {
+        std::cout << std::endl << "Handling " << arr[0] << std::endl;
+
+        try {
+            args.width = stoi(arr[1]);
+            args.height = stoi(arr[2]);
+        } catch (const std::invalid_argument& e) {
+            throw std::invalid_argument("At least one of the arguments for --drawing-size is invalud: " + arr[1] + " " + arr[2]);
+        }
+    }
+
+    void handleArgCulling(const std::array<std::string, 2> &arr) {
+        std::cout << std::endl << "Handling " << arr[0] << std::endl;
+        std::cout << "culling mode: " << arr[1] << std::endl;
+    }
+
+    void handleArgHeadless(const std::array<std::string, 2> &arr) {
+        std::cout << std::endl << "Handling " << arr[0] << std::endl;
+        std::cout << "event file: " << arr[1] << std::endl;
+    }
+
     void initWindow() {
         rg_WindowManager::init();
 
-        window = rg_WindowManager::createWindow(WIDTH, HEIGHT, "Vulkan");
+        if (args.width == 0 && args.height == 0) {
+            window = rg_WindowManager::createWindow(WIDTH, HEIGHT, "Vulkan");
+        } else {
+            window = rg_WindowManager::createWindow(args.width, args.height, "Vulkan");
+        }
 
         std::cout << std::endl;
     }
@@ -406,6 +493,14 @@ private:
         createInstance();
         setupDebugMessenger();
         createSurface();
+
+        if (args.listPhysicalDevices) {
+            enumeratePhysicalDevices();
+
+            // Quit the app after listing the devices to let the user pick one
+            exit(EXIT_SUCCESS);;
+        }
+
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapChain();
@@ -419,7 +514,7 @@ private:
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
-        loadSceneGraph("sg-Support.s72");
+        loadSceneGraph();
         createUniformBuffers();
         createDescriptorPool();
         createDescriptorSets();
@@ -543,6 +638,38 @@ private:
             "failed to create window surface");
     }
 
+    void enumeratePhysicalDevices() {
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+
+        if (deviceCount == 0) {
+            throw std::runtime_error("failed to find GPUs with Vulkan support!");
+        }
+
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+        std::cout << "Available devices:" << std::endl;
+
+        for (const VkPhysicalDevice& device : devices) {
+            VkPhysicalDeviceProperties deviceProperties;
+            vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+            std::cout << deviceProperties.deviceName << std::endl;
+        }
+        std::cout << std::endl;
+
+        if (enableValidationLayers) {
+            DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+        }
+
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        vkDestroyInstance(instance, nullptr);
+
+        rg_WindowManager::destroyWindow(window);
+        rg_WindowManager::cleanup();
+    }
+
     void pickPhysicalDevice() {
         uint32_t deviceCount = 0;
         vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
@@ -554,24 +681,39 @@ private:
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-        for (const auto& device : devices) {
-            if (isDeviceSuitable(device)) {
-                physicalDevice = device;
-                break;
+        if (args.physicalDeviceName == "") {
+            for (const VkPhysicalDevice& device : devices) {
+                if (isDeviceSuitable(device)) {
+                    physicalDevice = device;
+                    break;
+                }
             }
-        }
 
-        if (physicalDevice == VK_NULL_HANDLE) {
-            throw std::runtime_error("failed to find a suitable GPU!");
+            if (physicalDevice == VK_NULL_HANDLE) {
+                throw std::runtime_error("failed to find a suitable GPU!");
+            }
+        } else {
+            for (const VkPhysicalDevice& device : devices) {
+                VkPhysicalDeviceProperties deviceProperties;
+                vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+                if (args.physicalDeviceName == deviceProperties.deviceName) {
+                    if (!isDeviceSuitable(device)) {
+                        throw std::runtime_error("The GPU named \"" + args.physicalDeviceName + "\" does not support the required features!");
+                    }
+
+                    physicalDevice = device;
+                    break;
+                }
+            }
+
+            if (physicalDevice == VK_NULL_HANDLE) {
+                throw std::runtime_error("No GPU named \"" + args.physicalDeviceName + "\" was found!");
+            }
         }
     }
 
     bool isDeviceSuitable(VkPhysicalDevice device) {
-        VkPhysicalDeviceProperties deviceProperties;
-        vkGetPhysicalDeviceProperties(device, &deviceProperties);
-
-        // stuff above this comment is not used
-
         VkPhysicalDeviceFeatures supportedFeatures;
         vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
@@ -1354,8 +1496,8 @@ private:
             "failed to create texture sampler");
     }
 
-    void loadSceneGraph(std::string filename) {
-        JsonLoader sceneLoader("scenes/" + filename);
+    void loadSceneGraph() {
+        JsonLoader sceneLoader("scenes/" + args.sceneFile);
 
         std::cout << "LOADING JSON..." << std::endl << std::endl;
         JsonLoader::JsonNode* sceneJson = sceneLoader.parseJson();
@@ -1632,8 +1774,6 @@ private:
                     uint32_t color;
 
                     vertexData.read(reinterpret_cast<char*>(&color), size);
-
-                    std::cout << "COLOR: " << std::hex << color << std::endl;
 
                     // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
                     mesh.vertices.back().color.r = static_cast<float>((color >> 0) & 0xff) / 255.f;
@@ -2234,13 +2374,13 @@ private:
     }
 };
 
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << std::boolalpha;
 
     HelloTriangleApplication app;
 
     try {
-        app.run();
+        app.run(argc, argv);
     }
     catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;

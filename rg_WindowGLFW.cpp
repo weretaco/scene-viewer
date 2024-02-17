@@ -1,15 +1,23 @@
 #include "rg_WindowGLFW.h"
 
-const char* const* rg_WindowGLFW::getRequiredExtensions(uint32_t *count) {
-    return glfwGetRequiredInstanceExtensions(count);
-}
-
 void rg_WindowGLFW::init() {
     glfwInit();
 }
 
 void rg_WindowGLFW::cleanup() {
     glfwTerminate();
+}
+
+rg_WindowGLFW::rg_WindowGLFW(int width, int height, std::string title)
+: rg_Window(width, height, title) {
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+
+    window = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
+}
+
+const char* const* rg_WindowGLFW::getRequiredExtensions(uint32_t *count) {
+    return glfwGetRequiredInstanceExtensions(count);
 }
 
 void rg_WindowGLFW::pollEvents() {

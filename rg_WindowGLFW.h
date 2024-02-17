@@ -16,13 +16,7 @@ class rg_WindowGLFW : public rg_Window {
 
         static const char* const* getRequiredExtensions(uint32_t *count);
 
-        rg_WindowGLFW(int width, int height, std::string title)
-        : rg_Window(width, height, title) {
-            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-            glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-        
-            window = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
-        }
+        rg_WindowGLFW(int width, int height, std::string title);
 
         void pollEvents() override;
         void waitEvents() override;
