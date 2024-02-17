@@ -25,6 +25,7 @@
 
 #include "jsonloader.h"
 #include "rg_WindowManager.h"
+#include "OrbitCamera.h"
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -365,11 +366,8 @@ private:
 
     UniformBufferObject ubo{};
 
-    /* SceneGraph variables */
-
     Scene scene;
-
-    /* End SceneGraph variables */
+    OrbitCamera camera;
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -482,8 +480,10 @@ private:
 
         if (args.width == 0 && args.height == 0) {
             window = rg_WindowManager::createWindow(WIDTH, HEIGHT, "Vulkan");
+            camera = OrbitCamera(static_cast<int>(WIDTH), static_cast<int>(HEIGHT), glm::vec3(0.0f, 0.0f, 0.0f), 71.4f);
         } else {
             window = rg_WindowManager::createWindow(args.width, args.height, "Vulkan");
+            camera = OrbitCamera(static_cast<int>(args.width), static_cast<int>(args.height), glm::vec3(0.0f, 0.0f, 0.0f), 71.4f);
         }
 
         std::cout << std::endl;
@@ -522,11 +522,11 @@ private:
         createSyncObjects();
 
         //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        //ubo.view = glm::lookAt(glm::vec3(10.0f, 10.0f, 10.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        //ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
-        //ubo.proj = glm::perspective(0.119856f, 1.77778f, 0.1f, 1000.0f);
+        ubo.view = glm::lookAt(glm::vec3(50.0f, 10.0f, 50.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 
-        //ubo.proj[1][1] *= -1;
+        //ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+        ubo.proj = glm::perspective(0.119856f, 1.77778f, 0.1f, 1000.0f);
+        ubo.proj[1][1] *= -1;
     }
 
     void createInstance() {
@@ -2098,7 +2098,7 @@ private:
                 std::cout << "PRESSED" << std::endl;
             }
 
-            //ubo.view = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, time)) * origView;
+            ubo.view = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, 10.0f * time)) * origView;
         }
         lastUpState = upState;
 
@@ -2109,7 +2109,7 @@ private:
                 std::cout << "PRESSED" << std::endl;
             }
 
-            //ubo.view = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, -time)) * origView;
+            ubo.view = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, -10.0f * time)) * origView;
         }
         lastDownState = downState;
 
@@ -2120,6 +2120,26 @@ private:
         if (rightState == GLFW_PRESS) {
         }
         lastRightState = rightState;
+
+        // handle camera move start and stop
+
+        static bool mousePressed = false;
+
+        int state = glfwGetMouseButton((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_MOUSE_BUTTON_LEFT);
+
+        if (state == GLFW_PRESS) {
+            double xpos, ypos;
+            glfwGetCursorPos((GLFWwindow*)(window->getNativeWindowHandle()), &xpos, &ypos);
+
+            if (mousePressed == false) {
+                camera.startRotate(xpos, ypos);
+            } else {
+                camera.rotate(xpos, ypos);
+            }
+            mousePressed = true;
+        } else if (state == GLFW_RELEASE) {
+            mousePressed = false;
+        }
     }
 
     void drawFrame() {
@@ -2193,12 +2213,10 @@ private:
         auto currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-        UniformBufferObject ubo{};
         //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.view = glm::lookAt(glm::vec3(50.0f, 10.0f, 50.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.proj = glm::perspective(0.119856f, 1.77778f, 0.1f, 1000.0f);
 
-        ubo.proj[1][1] *= -1;
+        ubo.view = camera.getViewMatrix();
+        //ubo.view = glm::lookAt(glm::vec3(50.0f, 10.0f, 50.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 
         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
     }
