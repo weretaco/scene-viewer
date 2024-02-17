@@ -13,19 +13,20 @@ class OrbitCamera {
 
         void setWindowSize(int width, int height);
         glm::mat4 getViewMatrix();
-        void startRotate(double x, double y);
-        void rotate(double x, double y);
+        void startRotate(float x, float y);
+        void rotate(float x, float y);
+        void changeZoom(float changeDir);
         glm::vec3 getEye();
 
     private:
         int windowWidth, windowHeight;
-        glm::vec3 pos;
         glm::vec3 center;
         glm::vec3 up;
         float azimuthAngle;
         float polarAngle;
         float radius;
-        double startX, startY;
+        float minRadius;
+        float startX, startY;
         float startPolar, startAzimuth;
 };
 

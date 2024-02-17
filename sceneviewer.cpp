@@ -1,3 +1,7 @@
+// references
+// Vulkan Tutorial
+// https://www.mbsoftworks.sk/tutorials/opengl4/026-camera-pt3-orbit-camera/
+
 #include <cstdlib>
 #include <cstring>
 
@@ -241,6 +245,7 @@ struct Camera {
     float vfov;
     float near;
     float far;
+    glm::mat4 viewMat;
 
     void print() {
         std::cout << "Name: " << name << std::endl;
@@ -248,6 +253,7 @@ struct Camera {
         std::cout << "Vfov: " << vfov << std::endl;
         std::cout << "Near: " << near << std::endl;
         std::cout << "Far: " << far << std::endl;
+        std::cout << "View Mat: " << glm::to_string(viewMat) << std::endl;
     }
 };
 
@@ -295,9 +301,14 @@ struct CLIArguments {
     std::string sceneFile = "";
     std::string physicalDeviceName = "";
     bool listPhysicalDevices = false;
+    std::string cameraName = "";
     int width = 0;
     int height = 0;
 };
+
+// forward declarations, implementations at the end of this file
+void glfwScrollCallback(GLFWwindow* window, double xOffset, double yOffset);
+void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 class HelloTriangleApplication {
 public:
@@ -307,6 +318,24 @@ public:
         initVulkan();
         mainLoop();
         cleanup();
+    }
+
+    void mouseScrollCallback(float yOffset) {
+        if (curCamera == 0) {
+            orbitCamera.changeZoom(-yOffset);
+        }
+    }
+
+    void keyCallback(int key, int action) {
+        if (key == GLFW_KEY_Z && action == GLFW_PRESS) {
+            curCamera++;
+
+            if (curCamera > scene.cameras.size()) {
+                curCamera = 1;
+            }
+
+            std::cout << "Changing to scene camera " << (curCamera - 1) << std::endl;
+        }
     }
 
 private:
@@ -367,7 +396,8 @@ private:
     UniformBufferObject ubo{};
 
     Scene scene;
-    OrbitCamera camera;
+    OrbitCamera orbitCamera;
+    uint32_t curCamera = 0; // 0 is the user-controlled orbit camera, values greater than 0 are scene cameras
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -451,7 +481,7 @@ private:
 
     void handleArgCamera(const std::array<std::string, 2> &arr) {
         std::cout << std::endl << "Handling " << arr[0] << std::endl;
-        std::cout << "name: " << arr[1] << std::endl;
+        args.cameraName = arr[1];
     }
 
     void handleArgDrawingSize(const std::array<std::string, 3> &arr) {
@@ -478,15 +508,26 @@ private:
     void initWindow() {
         rg_WindowManager::init();
 
+        int windowWidth, windowHeight;
+
         if (args.width == 0 && args.height == 0) {
-            window = rg_WindowManager::createWindow(WIDTH, HEIGHT, "Vulkan");
-            camera = OrbitCamera(static_cast<int>(WIDTH), static_cast<int>(HEIGHT), glm::vec3(0.0f, 0.0f, 0.0f), 71.4f);
+            windowWidth = WIDTH;
+            windowHeight = HEIGHT;
         } else {
-            window = rg_WindowManager::createWindow(args.width, args.height, "Vulkan");
-            camera = OrbitCamera(static_cast<int>(args.width), static_cast<int>(args.height), glm::vec3(0.0f, 0.0f, 0.0f), 71.4f);
+            windowWidth = static_cast<int>(args.width);
+            windowHeight = static_cast<int>(args.height);
         }
 
-        std::cout << std::endl;
+        window = rg_WindowManager::createWindow(windowWidth, windowHeight, "Vulkan");
+        if (args.cameraName == "") {
+            curCamera = 0;
+            orbitCamera = OrbitCamera(windowWidth, windowHeight, glm::vec3(0.0f, 0.0f, 0.0f), 80.0f);
+        }
+
+        glfwSetWindowUserPointer((GLFWwindow*)(window->getNativeWindowHandle()), this);
+
+        glfwSetScrollCallback((GLFWwindow*)(window->getNativeWindowHandle()), glfwScrollCallback);
+        glfwSetKeyCallback((GLFWwindow*)(window->getNativeWindowHandle()), glfwKeyCallback);
     }
 
     void initVulkan() {
@@ -498,7 +539,7 @@ private:
             enumeratePhysicalDevices();
 
             // Quit the app after listing the devices to let the user pick one
-            exit(EXIT_SUCCESS);;
+            exit(EXIT_SUCCESS);
         }
 
         pickPhysicalDevice();
@@ -520,13 +561,6 @@ private:
         createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
-
-        //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.view = glm::lookAt(glm::vec3(50.0f, 10.0f, 50.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-
-        //ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
-        ubo.proj = glm::perspective(0.119856f, 1.77778f, 0.1f, 1000.0f);
-        ubo.proj[1][1] *= -1;
     }
 
     void createInstance() {
@@ -1507,57 +1541,32 @@ private:
         std::cout << "CONSTRUCTING SCENE..." << std::endl;
         constructSceneFromJson(scene, sceneJson);
 
-        std::cout << std::endl << "PARSED SCENE" << std::endl;
         scene.print();
+        std::cout << std::endl << "SHOWING SCENE CAMERAS" << std::endl;
+        size_t i = 0;
+        for (const Camera& cam : scene.cameras) {
+            std:: cout << cam.name << std::endl;
+
+            if (cam.name == args.cameraName) {
+                std::cout << "Setting camera to " << cam.name << std::endl;
+
+                curCamera = i+1; // curCamera == 0 means OrbitCamera
+            }
+
+            i++;
+        }
         std::cout << std::endl;
+
+        // abort if the named camera wasn't found
+        if (args.cameraName != "" && curCamera == 0) {
+            throw std::runtime_error("No camera named \"" + args.cameraName + "\" was found in the scene");
+        }
 
         for (Mesh& mesh : scene.meshes) {
             loadVertices(mesh);
             createVertexBuffer(mesh);
             createIndexBuffer(mesh);
         }
-    }
-
-    void renderSceneGraph(VkCommandBuffer& commandBuffer, Scene& scene) {
-        for (uint16_t root : scene.roots) {
-            Node rootNode = scene.nodes[root];
-
-            renderNode(commandBuffer, rootNode, glm::mat4(1), scene);
-        }
-    }
-
-    void renderNode(VkCommandBuffer& commandBuffer, Node& node, glm::mat4 transform, Scene& scene) {
-        glm::mat4 scaleMat = glm::scale(glm::mat4(1.0), node.scale);
-        glm::mat4 rotMat = glm::toMat4(node.rotation);
-        glm::mat4 transMat = glm::translate(glm::mat4(1.0), node.translation);
-
-        transform *= transMat * rotMat * scaleMat;
-
-        if (node.mesh.has_value()) {
-            Mesh mesh = scene.meshes[node.mesh.value()];
-
-            renderMesh(commandBuffer, mesh, transform);
-        }
-
-        for (uint16_t child : node.children) {
-            Node childNode = scene.nodes[child];
-
-            renderNode(commandBuffer, childNode, transform, scene);
-        }
-    }
-
-    void renderMesh(VkCommandBuffer& commandBuffer, Mesh& mesh, glm::mat4 transform) {
-        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
-
-        VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
-        VkDeviceSize offsets[] = { 0 };
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
-        vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-            0, 1, &descriptorSets[currentFrame], 0, nullptr);
-
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
     }
 
     void constructSceneFromJson(Scene& scene, JsonLoader::JsonNode* json) {
@@ -1711,6 +1720,73 @@ private:
                 sceneNode.mesh = scene.typeIndices[sceneNode.mesh.value()];
             }
         }
+
+        // Generate view mats for cameras
+        for (uint16_t root : scene.roots) {
+            Node rootNode = scene.nodes[root];
+
+            generateCameraViewMatsInNode(scene.nodes[root], glm::mat4(1), scene);
+        }
+    }
+
+    void generateCameraViewMatsInNode(const Node& node, glm::mat4 transform, Scene& scene) {
+        glm::mat4 scaleMat = glm::scale(glm::mat4(1.0), node.scale);
+        glm::mat4 rotMat = glm::toMat4(node.rotation);
+        glm::mat4 transMat = glm::translate(glm::mat4(1.0), node.translation);
+
+        transform *= transMat * rotMat * scaleMat;
+
+        if (node.camera.has_value()) {
+            scene.cameras[node.camera.value()].viewMat = glm::inverse(transform);
+        }
+
+        for (uint16_t child : node.children) {
+            Node childNode = scene.nodes[child];
+
+            generateCameraViewMatsInNode(childNode, transform, scene);
+        }
+    }
+
+    void renderSceneGraph(VkCommandBuffer& commandBuffer, Scene& scene) {
+        for (uint16_t root : scene.roots) {
+            Node rootNode = scene.nodes[root];
+
+            renderNode(commandBuffer, rootNode, glm::mat4(1), scene);
+        }
+    }
+
+    void renderNode(VkCommandBuffer& commandBuffer, Node& node, glm::mat4 transform, Scene& scene) {
+        glm::mat4 scaleMat = glm::scale(glm::mat4(1.0), node.scale);
+        glm::mat4 rotMat = glm::toMat4(node.rotation);
+        glm::mat4 transMat = glm::translate(glm::mat4(1.0), node.translation);
+
+        transform *= transMat * rotMat * scaleMat;
+
+        if (node.mesh.has_value()) {
+            Mesh mesh = scene.meshes[node.mesh.value()];
+
+            renderMesh(commandBuffer, mesh, transform);
+        }
+
+        for (uint16_t child : node.children) {
+            Node childNode = scene.nodes[child];
+
+            renderNode(commandBuffer, childNode, transform, scene);
+        }
+    }
+
+    void renderMesh(VkCommandBuffer& commandBuffer, Mesh& mesh, glm::mat4 transform) {
+        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
+
+        VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+        vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+            0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
     }
 
     glm::vec3 parseVec3(JsonLoader::JsonNode* node) {
@@ -2076,51 +2152,6 @@ private:
     }
 
     void handleEvents() {
-        static auto startTime = std::chrono::high_resolution_clock::now();
-        static int lastUpState = -1;
-        static int lastDownState = -1;
-        static int lastLeftState = -1;
-        static int lastRightState = -1;
-        static glm::mat4 origView = ubo.view;
-
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
-        int upState = glfwGetKey((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_KEY_UP);
-        int downState = glfwGetKey((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_KEY_DOWN);
-        int leftState = glfwGetKey((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_KEY_LEFT);
-        int rightState = glfwGetKey((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_KEY_RIGHT);
-
-        if (upState == GLFW_PRESS) {
-            if (lastUpState == GLFW_RELEASE) {
-                startTime = std::chrono::high_resolution_clock::now();
-                origView = ubo.view;
-                std::cout << "PRESSED" << std::endl;
-            }
-
-            ubo.view = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, 10.0f * time)) * origView;
-        }
-        lastUpState = upState;
-
-        if (downState == GLFW_PRESS) {
-            if (lastDownState == GLFW_RELEASE) {
-                startTime = std::chrono::high_resolution_clock::now();
-                origView = ubo.view;
-                std::cout << "PRESSED" << std::endl;
-            }
-
-            ubo.view = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, -10.0f * time)) * origView;
-        }
-        lastDownState = downState;
-
-        if (leftState == GLFW_PRESS) {
-        }
-        lastLeftState = leftState;
-
-        if (rightState == GLFW_PRESS) {
-        }
-        lastRightState = rightState;
-
         // handle camera move start and stop
 
         static bool mousePressed = false;
@@ -2131,10 +2162,12 @@ private:
             double xpos, ypos;
             glfwGetCursorPos((GLFWwindow*)(window->getNativeWindowHandle()), &xpos, &ypos);
 
-            if (mousePressed == false) {
-                camera.startRotate(xpos, ypos);
-            } else {
-                camera.rotate(xpos, ypos);
+            if (curCamera == 0) {
+                if (mousePressed) {
+                    orbitCamera.rotate(static_cast<float>(xpos), static_cast<float>(ypos));
+                } else {
+                    orbitCamera.startRotate(static_cast<float>(xpos), static_cast<float>(ypos));
+                }
             }
             mousePressed = true;
         } else if (state == GLFW_RELEASE) {
@@ -2214,11 +2247,34 @@ private:
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
         //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-
-        ubo.view = camera.getViewMatrix();
-        //ubo.view = glm::lookAt(glm::vec3(50.0f, 10.0f, 50.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.view = getViewFromCamera();
+        ubo.proj = getProjFromCamera();
 
         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+    }
+
+    glm::mat4 getViewFromCamera() {
+        if (curCamera == 0) {
+            return orbitCamera.getViewMatrix();
+        } else {
+            return scene.cameras[curCamera - 1].viewMat;
+        }
+    }
+
+    glm::mat4 getProjFromCamera() {
+        glm::mat4 proj;
+
+        if (curCamera == 0) {
+            proj = glm::perspective(0.119856f, 1.77778f, 0.1f, 1000.0f);
+        } else {
+            const Camera& cam = scene.cameras[curCamera - 1];
+
+            proj = glm::perspective(cam.vfov, cam.aspect, cam.near, cam.far);
+        }
+
+        proj[1][1] *= -1;
+
+        return proj;
     }
 
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
@@ -2263,19 +2319,6 @@ private:
         scissor.extent = swapChainExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        /*for (Mesh& mesh : scene.meshes) {
-            std::cout << std::endl << "ABOUT TO RENDER MESH: " << mesh.name << std::endl;
-
-            VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
-            VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
-            vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-                0, 1, &descriptorSets[currentFrame], 0, nullptr);
-
-            vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
-        }*/
         renderSceneGraph(commandBuffer, scene);
 
         vkCmdEndRenderPass(commandBuffer);
@@ -2391,6 +2434,14 @@ private:
         return true;
     }
 };
+
+void glfwScrollCallback(GLFWwindow* window, double xOffset, double yOffset) {
+    static_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window))->mouseScrollCallback(static_cast<float>(yOffset));
+}
+
+void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    static_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window))->keyCallback(key, action);
+}
 
 int main(int argc, char* argv[]) {
     std::cout << std::boolalpha;

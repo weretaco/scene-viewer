@@ -7,10 +7,8 @@ OrbitCamera::OrbitCamera()
 }
 
 OrbitCamera::OrbitCamera(int width, int height, glm::vec3 center, float radius)
-: windowWidth(width), windowHeight(height), center(center), up(glm::vec3(0.0f, 0.0f, 1.0f)), radius(radius) {
-    pos = glm::vec3(50.0f, 10.0f, 50.0f);
-    //pos = glm::vec3(0.0f, 0.0f, radius);
-
+: windowWidth(width), windowHeight(height), center(center), up(glm::vec3(0.0f, 0.0f, 1.0f)),
+radius(radius), minRadius(radius / 10.0f) {
     polarAngle = glm::pi<float>() / 4.0f;
     azimuthAngle = 0.0f;
 }
@@ -19,25 +17,31 @@ glm::mat4 OrbitCamera::getViewMatrix() {
     return glm::lookAt(getEye(), center, up);
 }
 
-void OrbitCamera::startRotate(double x, double y) {
-    std::cout << "Starting rotation..." << std::endl;
-
+void OrbitCamera::startRotate(float x, float y) {
     startX = x;
     startY = y;
     startPolar = polarAngle;
     startAzimuth = azimuthAngle;
 }
 
-void OrbitCamera::rotate(double x, double y) {
-    float maxPolar = glm::degrees(glm::pi<float>());
-    float minPolar = -glm::degrees(glm::pi<float>());
-
-    float maxAzimuth = glm::degrees(2.0f * glm::pi<float>());
+void OrbitCamera::rotate(float x, float y) {
+    float fullCircle = glm::degrees(2.0f * glm::pi<float>());
+    float maxAzimuth = fullCircle;
     float minAzimuth = 0.0f;
 
+    float xDiff = x - startX;
+    azimuthAngle = startAzimuth + (xDiff * (maxAzimuth - minAzimuth) / windowWidth);
+    azimuthAngle = fmodf(azimuthAngle, fullCircle);
 
-    double xDiff = x - startX;
-    polarAngle = startPolar + (xDiff * (maxPolar - minPolar) / windowHeight);
+    if (azimuthAngle < minAzimuth) {
+        azimuthAngle += fullCircle;
+    }
+
+    float maxPolar = glm::degrees(glm::pi<float>()) / 2.0f - 0.001f;
+    float minPolar = -maxPolar;
+
+    float yDiff = y - startY;
+    polarAngle = startPolar + (yDiff / windowHeight * (maxPolar - minPolar));
 
     if (polarAngle > maxPolar) {
         polarAngle = maxPolar;
@@ -45,9 +49,10 @@ void OrbitCamera::rotate(double x, double y) {
     if (polarAngle < minPolar) {
         polarAngle = minPolar;
     }
+}
 
-    double yDiff = y - startY;
-    azimuthAngle = startAzimuth + (yDiff * (maxAzimuth - minAzimuth) / windowWidth);
+void OrbitCamera::changeZoom(float changeDir) {
+    radius = std::max(radius + changeDir, minRadius);
 }
 
 glm::vec3 OrbitCamera::getEye() {
@@ -57,8 +62,8 @@ glm::vec3 OrbitCamera::getEye() {
     float cosAzimuth =  cos(glm::radians(azimuthAngle));
 
     float x = center.x + radius * cosPolar * cosAzimuth;
-    float y = center.y + radius * sinPolar;
-    float z = center.z + radius * cosPolar * sinAzimuth;
+    float y = center.y + radius * cosPolar * sinAzimuth;
+    float z = center.z + radius * sinPolar;
 
     return glm::vec3(x, y, z);
 }
