@@ -30,6 +30,7 @@
 #include <glm/gtc/matrix_inverse.hpp>
 
 #include "jsonloader.h"
+#include "eventloader.h"
 #include "rg_WindowManager.h"
 #include "OrbitCamera.h"
 
@@ -358,6 +359,7 @@ struct CLIArguments {
     std::string cameraName = "";
     int width = 0;
     int height = 0;
+    std::string eventsFile = "";
 };
 
 // forward declarations, implementations at the end of this file
@@ -553,11 +555,19 @@ private:
     void handleArgCulling(const std::array<std::string, 2> &arr) {
         std::cout << std::endl << "Handling " << arr[0] << std::endl;
         std::cout << "culling mode: " << arr[1] << std::endl;
+
+        // TODO: I can implement this now
     }
 
     void handleArgHeadless(const std::array<std::string, 2> &arr) {
         std::cout << std::endl << "Handling " << arr[0] << std::endl;
-        std::cout << "event file: " << arr[1] << std::endl;
+        std::cout << "event file: " << arr[1] << std::endl << std::endl;
+
+        if (args.width == 0 && args.height == 0) {
+            throw std::invalid_argument("--drawing-size must also be specified when using headless mode");
+        }
+
+        args.eventsFile = arr[1];
     }
 
     void initWindow() {
@@ -596,6 +606,8 @@ private:
             // Quit the app after listing the devices to let the user pick one
             exit(EXIT_SUCCESS);
         }
+
+        loadEvents();
 
         pickPhysicalDevice();
         createLogicalDevice();
@@ -1585,6 +1597,16 @@ private:
             "failed to create texture sampler");
     }
 
+    void loadEvents() {
+        EventLoader eventLoader(args.eventsFile);
+
+        std::cout << "LOADING EVENTS from " << args.eventsFile << "..." << std::endl << std::endl;
+        eventLoader.parseEvents();
+        std::cout << std::endl;
+
+        eventLoader.close();
+    }
+
     void loadSceneGraph() {
         JsonLoader sceneLoader(args.sceneFile);
 
@@ -1596,7 +1618,7 @@ private:
         std::cout << "CONSTRUCTING SCENE..." << std::endl;
         constructSceneFromJson(scene, sceneJson);
 
-        scene.print();
+        //scene.print();
         std::cout << std::endl << "SHOWING SCENE CAMERAS" << std::endl;
         size_t i = 0;
         for (const Camera& cam : scene.cameras) {
@@ -2289,8 +2311,6 @@ private:
         vkDeviceWaitIdle(device);
     }
 
-
-    // --scene scenes/rotation.s72 --physical-device "NVIDIA RTX A4000" --drawing-size 800 600 --camera Camera
     void animate(std::chrono::high_resolution_clock::time_point curTime) {
         for (const Driver& driver : scene.drivers) {
             Animation& anim = scene.anims[driver.animIndex];

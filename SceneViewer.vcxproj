@@ -156,12 +156,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="eventloader.cpp" />
     <ClCompile Include="jsonloader.cpp" />
     <ClCompile Include="OrbitCamera.cpp" />
     <ClCompile Include="rg_WindowGLFW.cpp" />
     <ClCompile Include="sceneviewer.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="eventloader.h" />
     <ClInclude Include="jsonloader.h" />
     <ClInclude Include="OrbitCamera.h" />
     <ClInclude Include="rg_Window.h" />
@@ -210,6 +212,9 @@
     <None Include="scenes\sphereflake.Sphere.b72" />
     <None Include="shaders\shader.frag" />
     <None Include="shaders\shader.vert" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="example.events.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
