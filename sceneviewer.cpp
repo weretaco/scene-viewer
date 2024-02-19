@@ -191,35 +191,6 @@ struct Node {
     }
 };
 
-struct Driver {
-    std::string name;
-    uint16_t node;
-    std::string channel;
-    std::vector<float> times;
-    std::vector<float> values;
-    std::string interpolation;
-
-    void print() {
-        std::cout << "Name: " << name << std::endl;
-
-        std::cout << "Node: " << node << std::endl;
-        std::cout << "Channel: " << channel << std::endl;
-        std::cout << "Interpolation: " << interpolation << std::endl;
-
-        std::cout << "Times: ";
-        for (float time : times) {
-            std::cout << time << " ";
-        }
-        std::cout << std::endl;
-
-        std::cout << "Values: ";
-        for (float value : values) {
-            std::cout << value << " ";
-        }
-        std::cout << std::endl;
-    }
-};
-
 struct Mesh {
     std::string name;
     std::string topology;
@@ -285,11 +256,47 @@ struct Camera {
     }
 };
 
+struct Driver {
+    std::string name;
+    uint16_t node;
+    std::string channel;
+    std::vector<float> times;
+    std::vector<float> values;
+    std::string interpolation;
+    uint16_t animIndex;
+
+    void print() {
+        std::cout << "Name: " << name << std::endl;
+
+        std::cout << "Node: " << node << std::endl;
+        std::cout << "Channel: " << channel << std::endl;
+        std::cout << "Interpolation: " << interpolation << std::endl;
+
+        std::cout << "Times: ";
+        for (float time : times) {
+            std::cout << time << " ";
+        }
+        std::cout << std::endl;
+
+        std::cout << "Values: ";
+        for (float value : values) {
+            std::cout << value << " ";
+        }
+        std::cout << std::endl;
+    }
+};
+
+struct Animation {
+    std::chrono::high_resolution_clock::time_point startTime;
+    uint16_t curFrameIndex;
+};
+
 struct Scene {
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
     std::vector<Camera> cameras;
     std::vector<Driver> drivers;
+    std::vector<Animation> anims;
     std::vector<uint16_t> roots;
 
     // maps indices of JSON nodes to the index of the corresponding struct in one of the arrays of the Scene object
@@ -1766,6 +1773,13 @@ private:
                     for (JsonLoader::JsonNode* node : values) {
                         scene.drivers.back().values.push_back(std::get<float>(node->value));
                     }
+
+                    scene.drivers.back().animIndex = scene.anims.size();
+
+                    // Also initialize the corresponding Animation objects
+
+                    scene.anims.push_back({});
+                    scene.anims.back().curFrameIndex = std::numeric_limits<uint16_t>::max();
                 }
             } else {
                 std::cout << "UNEXPECTED JSON TYPE!" << std::endl;
@@ -2259,13 +2273,96 @@ private:
     }
 
     void mainLoop() {
+        std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+        std::chrono::high_resolution_clock::time_point curTime;
+
         while (!window->windowShouldClose()) {
             window->pollEvents();
             handleEvents();
+
+            curTime = std::chrono::high_resolution_clock::now();
+            animate(curTime);
+
             drawFrame();
         }
 
         vkDeviceWaitIdle(device);
+    }
+
+    void animate(std::chrono::high_resolution_clock::time_point curTime) {
+        for (const Driver& driver : scene.drivers) {
+            Animation& anim = scene.anims[driver.animIndex];
+            const Node& node = scene.nodes[driver.node];
+
+            float elapsedTime;
+
+            if (anim.curFrameIndex == std::numeric_limits<uint16_t>::max()) {
+                // init the animiation time
+
+                anim.curFrameIndex = 0;
+                anim.startTime = curTime;
+                elapsedTime = 0.0f;
+            } else {
+                elapsedTime = std::chrono::duration<float, std::chrono::seconds::period>(curTime - anim.startTime).count();
+                std::cout << "Elapsed time: " << elapsedTime << std::endl;
+                std::cout << "Cur frame time: " << driver.times[anim.curFrameIndex] << std::endl;
+
+                if (anim.curFrameIndex < (driver.times.size() - 1)) {
+                    std::cout << "Next frame time: " << driver.times[anim.curFrameIndex + 1] << std::endl;
+                }
+
+                // stop if we got to the end of the animation (could maybe change this to loop instead)
+                while (anim.curFrameIndex < (driver.times.size() - 1) && elapsedTime >= driver.times[anim.curFrameIndex + 1]) {
+                    anim.curFrameIndex++;
+                }
+            }
+
+            int dataSize;
+
+            if (driver.channel == "translation" || driver.channel == "scale") {
+                dataSize = 3;
+            } else if (driver.channel == "rotation") {
+                dataSize = 4;
+            } else {
+                throw std::runtime_error("Unexpected animation channel");
+            }
+
+            std::vector<float> curValues, nextFrameValues;
+
+            for (size_t i = 0; i < dataSize; i++) {
+                curValues.push_back(driver.values[anim.curFrameIndex * dataSize + i]);
+            }
+
+            if (anim.curFrameIndex >= driver.times.size() - 1) {
+                // update the values to the ones in the last frame and go to the next animation
+
+                continue;
+            }
+
+            for (size_t i = 0; i < dataSize; i++) {
+                nextFrameValues.push_back(driver.values[(anim.curFrameIndex + 1) * dataSize + i]);
+            }
+
+            float timeUntilNextFrame = driver.times[anim.curFrameIndex + 1] - driver.times[anim.curFrameIndex];
+            float timeFraction = elapsedTime / timeUntilNextFrame;
+
+            if (driver.interpolation == "STEP") {
+                // do nothing since we should already have the right values
+            } else if (driver.interpolation == "LINEAR") {
+                for (size_t i = 0; i < dataSize; i++) {
+                    float delta = (nextFrameValues[i] - curValues[i]) * timeFraction;
+                    curValues[i] += delta;
+                }
+            } else if (driver.interpolation == "SLERP") {
+                glm::vec4 vecCurFrame(curValues[0], curValues[1], curValues[2], curValues[3]);
+                glm::vec4 vecNextFrame(nextFrameValues[0], nextFrameValues[1], nextFrameValues[2], nextFrameValues[3]);
+
+                float angle = glm::acos(glm::dot(vecCurFrame, vecNextFrame));
+                float denom = glm::sin(angle); 
+
+                glm::vec4 interpolated = (vecCurFrame * glm::sin((1.0f - timeFraction) * angle) + vecNextFrame * glm::sin(timeFraction * angle)) / denom;
+            }
+        }
     }
 
     void handleEvents() {
@@ -2360,7 +2457,7 @@ private:
     void updateUniformBuffer(uint32_t currentFrame) {
         static auto startTime = std::chrono::high_resolution_clock::now();
 
-        auto currentTime = std::chrono::high_resolution_clock::now();
+        std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
         //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
