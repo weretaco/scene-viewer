@@ -7,10 +7,6 @@ SceneViewer: sceneviewer.cpp jsonloader.cpp OrbitCamera.h OrbitCamera.cpp rg_Win
 	rm -f SceneViewer
 	g++ $(CFLAGS) -o SceneViewer sceneviewer.cpp jsonloader.cpp OrbitCamera.cpp rg_WindowGLFW.cpp rg_WindowNativeLinux.cpp $(LDFLAGS)
 
-Launcher: launcher.cpp
-	rm -f Launcher
-	g++ $(CFLAGS) -o Launcher launcher.cpp $(LDFLAGS)
-
 .PHONY: shaders clean
 
 shaders:
@@ -18,4 +14,3 @@ shaders:
 
 clean:
 	rm -f SceneViewer
-	rm -f Launcher
