@@ -191,6 +191,35 @@ struct Node {
     }
 };
 
+struct Driver {
+    std::string name;
+    uint16_t node;
+    std::string channel;
+    std::vector<float> times;
+    std::vector<float> values;
+    std::string interpolation;
+
+    void print() {
+        std::cout << "Name: " << name << std::endl;
+
+        std::cout << "Node: " << node << std::endl;
+        std::cout << "Channel: " << channel << std::endl;
+        std::cout << "Interpolation: " << interpolation << std::endl;
+
+        std::cout << "Times: ";
+        for (float time : times) {
+            std::cout << time << " ";
+        }
+        std::cout << std::endl;
+
+        std::cout << "Values: ";
+        for (float value : values) {
+            std::cout << value << " ";
+        }
+        std::cout << std::endl;
+    }
+};
+
 struct Mesh {
     std::string name;
     std::string topology;
@@ -260,6 +289,7 @@ struct Scene {
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
     std::vector<Camera> cameras;
+    std::vector<Driver> drivers;
     std::vector<uint16_t> roots;
 
     // maps indices of JSON nodes to the index of the corresponding struct in one of the arrays of the Scene object
@@ -282,6 +312,7 @@ struct Scene {
         }
         std::cout << std::endl;
 
+        /*
         std::cout << std::endl << "NODES:" << std::endl;
         for (Node& node : nodes) {
             node.print();
@@ -291,6 +322,13 @@ struct Scene {
         std::cout << std::endl << "MESHES:" << std::endl;
         for (Mesh& mesh : meshes) {
             mesh.print();
+        }
+        std::cout << std::endl;
+        */
+
+        std::cout << std::endl << "DRIVERS:" << std::endl;
+        for (Driver& driver : drivers) {
+            driver.print();
         }
         std::cout << std::endl;
     }
@@ -1647,7 +1685,6 @@ private:
                     if (obj.count("mesh") > 0) {
                         scene.nodes.back().mesh = static_cast<uint16_t>(std::get<float>(obj["mesh"]->value));
                     }
-
                 } else if (sceneType == "MESH") {
                     scene.typeIndices.push_back(scene.meshes.size());
                     scene.meshes.push_back({});
@@ -1706,9 +1743,32 @@ private:
                     scene.cameras.back().vfov = std::get<float>(perspective["vfov"]->value);
                     scene.cameras.back().near = std::get<float>(perspective["near"]->value);
                     scene.cameras.back().far = std::get<float>(perspective["far"]->value);
+                } else if (sceneType == "DRIVER") {
+                    scene.typeIndices.push_back(scene.drivers.size());
+                    scene.drivers.push_back({});
+
+                    scene.drivers.back().name = std::get<std::string>(obj["name"]->value);
+                    scene.drivers.back().node = static_cast<uint16_t>(std::get<float>(obj["node"]->value));
+                    scene.drivers.back().channel = std::get<std::string>(obj["channel"]->value);
+
+                    if (obj.count("interpolation") > 0) {
+                        scene.drivers.back().interpolation = std::get<std::string>(obj["interpolation"]->value);
+                    } else {
+                        scene.drivers.back().interpolation = "LINEAR";
+                    }
+
+                    std::vector<JsonLoader::JsonNode*>& times = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["times"]->value);
+                    for (JsonLoader::JsonNode* node : times) {
+                        scene.drivers.back().times.push_back(std::get<float>(node->value));
+                    }
+
+                    std::vector<JsonLoader::JsonNode*>& values = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["values"]->value);
+                    for (JsonLoader::JsonNode* node : values) {
+                        scene.drivers.back().values.push_back(std::get<float>(node->value));
+                    }
                 }
             } else {
-                std::cout << "UNEXPECTED JSON TYPE!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+                std::cout << "UNEXPECTED JSON TYPE!" << std::endl;
             }
         }
 
@@ -1730,6 +1790,10 @@ private:
             if (sceneNode.mesh.has_value()) {
                 sceneNode.mesh = scene.typeIndices[sceneNode.mesh.value()];
             }
+        }
+
+        for (Driver& driver : scene.drivers) {
+            driver.node = scene.typeIndices[driver.node];
         }
 
         // Generate view mats for cameras

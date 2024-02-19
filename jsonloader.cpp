@@ -156,13 +156,13 @@ JsonLoader::Token JsonLoader::getToken() {
 
         size_t prevCharPos = fileStream.tellg();
 
-        while (c == '-' || c == '.' || std::isdigit(c)) {
+        while (c == '-' || c == '+' || c == 'e' || c == '.' || std::isdigit(c)) { // check for scientific notation as well
             prevCharPos = fileStream.tellg();
             fileStream.get(c);
 
             if (fileStream.eof()) {
                 break;
-            } else if (c == '-' || c == '.' || std::isdigit(c)) {
+            } else if (c == '-' || c == '+' || c == 'e' || c == '.' || std::isdigit(c)) {
                 token.value += c;
             } else {
                 fileStream.seekg(prevCharPos);
