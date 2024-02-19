@@ -1,6 +1,7 @@
 // references
-// Vulkan Tutorial
+// https://docs.vulkan.org/tutorial/latest/00_Introduction.html
 // https://www.mbsoftworks.sk/tutorials/opengl4/026-camera-pt3-orbit-camera/
+// https://www.braynzarsoft.net/viewtutorial/q16390-34-aabb-cpu-side-frustum-culling
 
 #include <cstdlib>
 #include <cstring>
@@ -16,16 +17,17 @@
 #include <stdexcept>
 #include <vector>
 
-#define GLM_FORCE_RADIANS
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_RADIANS
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/string_cast.hpp>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include <glm/gtc/matrix_inverse.hpp>
 
 #include "jsonloader.h"
 #include "rg_WindowManager.h"
@@ -206,10 +208,7 @@ struct Mesh {
 
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
-
-    void createBuffers(VkDevice device) {
-
-    }
+    std::array<glm::vec3, 2> aabb; // define min point and max point for AABB
 
     void cleanupBuffers(VkDevice device) {
         vkDestroyBuffer(device, indexBuffer, nullptr);
@@ -241,8 +240,8 @@ struct Mesh {
 // assume perspective camera
 struct Camera {
     std::string name;
-    float aspect;
     float vfov;
+    float aspect;
     float near;
     float far;
     glm::mat4 viewMat;
@@ -295,6 +294,16 @@ struct Scene {
         }
         std::cout << std::endl;
     }
+};
+
+// the vec4 culling planes represent the plane equation: Ax+By+Cz+D = 0, where the vec4 is (A, B, C, D)
+struct Frustum {
+    glm::vec4 nearPlane;
+    glm::vec4 farPlane;
+    glm::vec4 leftPlane;
+    glm::vec4 rightPlane;
+    glm::vec4 topPlane;
+    glm::vec4 bottomPlane;
 };
 
 struct CLIArguments {
@@ -398,6 +407,7 @@ private:
     Scene scene;
     OrbitCamera orbitCamera;
     uint32_t curCamera = 0; // 0 is the user-controlled orbit camera, values greater than 0 are scene cameras
+    Frustum frustum;
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -1566,6 +1576,7 @@ private:
             loadVertices(mesh);
             createVertexBuffer(mesh);
             createIndexBuffer(mesh);
+            mesh.aabb = getAABB(mesh);
         }
     }
 
@@ -1763,9 +1774,20 @@ private:
         transform *= transMat * rotMat * scaleMat;
 
         if (node.mesh.has_value()) {
-            Mesh mesh = scene.meshes[node.mesh.value()];
+            const Mesh& mesh = scene.meshes[node.mesh.value()];
+            const std::array<glm::vec3, 2>& aabb = mesh.aabb;
 
-            renderMesh(commandBuffer, mesh, transform);
+            glm::vec3 center(transform * glm::vec4((aabb[1] - aabb[0]) / 2.0f, 0.0f));
+            glm::vec3 max(transform * glm::vec4(aabb[1], 0.0f));
+            glm::vec3 halfExtent = max - center;
+
+            glm::vec3 pos(transform * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+            if (frustumIntersectsAABB(frustum, center, halfExtent)) {
+                renderMesh(commandBuffer, mesh, transform);
+            } else {
+                std::cout << "CULLED " << mesh.name << std::endl;
+            }
         }
 
         for (uint16_t child : node.children) {
@@ -1775,7 +1797,7 @@ private:
         }
     }
 
-    void renderMesh(VkCommandBuffer& commandBuffer, Mesh& mesh, glm::mat4 transform) {
+    void renderMesh(VkCommandBuffer& commandBuffer, const Mesh& mesh, glm::mat4 transform) {
         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
 
         VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
@@ -1928,6 +1950,37 @@ private:
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+
+    std::array<glm::vec3, 2> getAABB(const Mesh& mesh) {
+        if (mesh.name == "Ground") {
+            std::cout << std::endl << "GETTING AABB FOR " << mesh.name << std::endl;
+        }
+
+        std::array<glm::vec3, 2> aabb;
+
+        aabb[0] = glm::vec3(std::numeric_limits<float>::max());
+        aabb[1] = glm::vec3(std::numeric_limits<float>::min());
+
+        for (const Vertex& vert : mesh.vertices) {
+            // min vertex
+            aabb[0].x = std::min(aabb[0].x, vert.pos.x);
+            aabb[0].y = std::min(aabb[0].y, vert.pos.y);
+            aabb[0].z = std::min(aabb[0].z, vert.pos.z);
+
+            // max vertex
+            aabb[1].x = std::max(aabb[1].x, vert.pos.x);
+            aabb[1].y = std::max(aabb[1].y, vert.pos.y);
+            aabb[1].z = std::max(aabb[1].z, vert.pos.z);
+        }
+
+        if (mesh.name == "Ground") {
+            std::cout << "AABB min: " << glm::to_string(aabb[0]) << std::endl;
+            std::cout << "AABB max: " << glm::to_string(aabb[1]) << std::endl;
+            std::cout << std::endl;
+        }
+
+        return aabb;
     }
 
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
@@ -2250,7 +2303,29 @@ private:
         ubo.view = getViewFromCamera();
         ubo.proj = getProjFromCamera();
 
+        //std::cout << "Projection: " << glm::to_string(ubo.proj) << std::endl;
+        //std::cout << "View: " << glm::to_string(ubo.view) << std::endl;
+
+        generateFrustum(ubo.proj * ubo.view, ubo.view);
+
+        //std::cout << "Near Plane: " << glm::to_string(frustum.nearPlane) << std::endl;
+        //std::cout << "Far Plane: " << glm::to_string(frustum.farPlane) << std::endl;
+
         memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+    }
+
+    Camera getActiveCam() {
+        if (curCamera == 0) {
+            return {
+                .name = "User Cam",
+                .vfov = 0.119856f,
+                .aspect = 1.77778f,
+                .near = 0.1f,
+                .far = 1000.0f
+            };
+        } else {
+            return scene.cameras[curCamera - 1];
+        }
     }
 
     glm::mat4 getViewFromCamera() {
@@ -2264,17 +2339,85 @@ private:
     glm::mat4 getProjFromCamera() {
         glm::mat4 proj;
 
-        if (curCamera == 0) {
-            proj = glm::perspective(0.119856f, 1.77778f, 0.1f, 1000.0f);
-        } else {
-            const Camera& cam = scene.cameras[curCamera - 1];
+        const Camera& cam = curCamera == 0 ?
+            Camera {
+                .name = "User Cam",
+                .vfov = 0.119856f,
+                .aspect = 1.77778f,
+                .near = 0.1f,
+                .far = 1000.0f
+            } :
+            scene.cameras[curCamera - 1];
 
-            proj = glm::perspective(cam.vfov, cam.aspect, cam.near, cam.far);
-        }
-
+        proj = glm::perspective(cam.vfov, cam.aspect, cam.near, cam.far);
         proj[1][1] *= -1;
 
         return proj;
+    }
+
+    void generateFrustum(const glm::mat4& vpMat, const glm::mat4& viewMat) {
+        const Camera& cam = getActiveCam();
+        glm::mat4 viewInverse = glm::affineInverse(viewMat);
+
+        glm::vec3 right = glm::vec3(viewInverse[0]);
+        glm::vec3 up = glm::vec3(viewInverse[1]);
+        glm::vec3 forward = -glm::vec3(viewInverse[2]);
+        glm::vec3 eye = glm::vec3(viewInverse[3]);
+        float near = cam.near;
+        float far = cam.far;
+        float half_v = far * tanf(cam.vfov * 0.5f);
+        float half_h = half_v * cam.aspect;
+
+        frustum.nearPlane = generatePlane(eye + (forward * near), forward);
+        frustum.farPlane = generatePlane(eye + (forward * far), forward * -1.0f);
+        frustum.rightPlane =    generatePlane(eye, glm::cross(up, forward * far + right * half_h));
+        frustum.leftPlane =     generatePlane(eye, glm::cross(forward * far - right * half_h, up));
+        frustum.topPlane =      generatePlane(eye, glm::cross(right, forward * far + up * half_v));
+        frustum.bottomPlane =   generatePlane(eye, glm::cross(forward * far - up * half_v, right));
+    }
+
+    glm::vec4 generatePlane(glm::vec3 p, glm::vec3 normal) {
+        normal = glm::normalize(normal);
+        float dist = glm::dot(normal, p);
+
+        return glm::vec4(normal, dist);
+    }
+
+    float getSignedDistanceToPlane(const glm::vec4& plane, const glm::vec3& position) {
+        return glm::dot(glm::vec3(plane), position) - plane.w;
+    }
+
+    bool planeIntersectsAABB(const glm::vec4& plane, const glm::vec3& center, const glm::vec3& extents) {
+        glm::vec3 planNormal(plane);
+
+        float r = glm::dot(extents, planNormal);
+
+        return -r <= getSignedDistanceToPlane(plane, center);
+    }
+
+    bool frustumIntersectsAABB(const Frustum& frustum, glm::vec3 center, glm::vec3 extents) {
+        /*
+        if (!planeIntersectsAABB(frustum.nearPlane, center, extents)) {
+            return false;
+        }
+        if (!planeIntersectsAABB(frustum.farPlane, center, extents)) {
+            return false;
+        }
+        if (!planeIntersectsAABB(frustum.leftPlane, center, extents)) {
+            return false;
+        }
+        if (!planeIntersectsAABB(frustum.rightPlane, center, extents)) {
+            return false;
+        }
+        if (!planeIntersectsAABB(frustum.topPlane, center, extents)) {
+            return false;
+        }
+        if (!planeIntersectsAABB(frustum.bottomPlane, center, extents)) {
+            return false;
+        }
+        */
+        
+        return true;
     }
 
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
