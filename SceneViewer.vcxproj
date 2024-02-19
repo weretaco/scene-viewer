@@ -89,10 +89,14 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>C:\Users\dportnoy\Dev\realtime-rendering\include;C:\Users\dportnoy\Dev\realtime-rendering\glfw\include;C:\VulkanSDK\1.3.275.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>vulkan-1.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\VulkanSDK\1.3.275.0\Lib;C:\Users\dportnoy\Dev\realtime-rendering\glfw\lib-vc2019;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -103,12 +107,16 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>C:\Users\dportnoy\Dev\realtime-rendering\include;C:\Users\dportnoy\Dev\realtime-rendering\glfw\include;C:\VulkanSDK\1.3.275.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>vulkan-1.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\VulkanSDK\1.3.275.0\Lib;C:\Users\dportnoy\Dev\realtime-rendering\glfw\lib-vc2019;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -117,10 +125,14 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>C:\Users\dportnoy\Dev\realtime-rendering\include;C:\Users\dportnoy\Dev\realtime-rendering\glfw\include;C:\VulkanSDK\1.3.275.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>vulkan-1.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\VulkanSDK\1.3.275.0\Lib;C:\Users\dportnoy\Dev\realtime-rendering\glfw\lib-vc2019;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -131,16 +143,73 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>C:\Users\dportnoy\Dev\realtime-rendering\include;C:\Users\dportnoy\Dev\realtime-rendering\glfw\include;C:\VulkanSDK\1.3.275.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>vulkan-1.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\VulkanSDK\1.3.275.0\Lib;C:\Users\dportnoy\Dev\realtime-rendering\glfw\lib-vc2019;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="launcher.cpp" />
+    <ClCompile Include="jsonloader.cpp" />
+    <ClCompile Include="OrbitCamera.cpp" />
+    <ClCompile Include="rg_WindowGLFW.cpp" />
+    <ClCompile Include="sceneviewer.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="jsonloader.h" />
+    <ClInclude Include="OrbitCamera.h" />
+    <ClInclude Include="rg_Window.h" />
+    <ClInclude Include="rg_WindowGLFW.h" />
+    <ClInclude Include="rg_WindowManager.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="scenes\rotation.AroundX.b72" />
+    <None Include="scenes\rotation.AroundY.b72" />
+    <None Include="scenes\rotation.AroundZ.b72" />
+    <None Include="scenes\rotation.s72" />
+    <None Include="scenes\sg-Articulation.Bracket.b72" />
+    <None Include="scenes\sg-Articulation.Foot.b72" />
+    <None Include="scenes\sg-Articulation.Link.b72" />
+    <None Include="scenes\sg-Articulation.Plane.002.b72" />
+    <None Include="scenes\sg-Articulation.Rounded-Cube.b72" />
+    <None Include="scenes\sg-Articulation.s72" />
+    <None Include="scenes\sg-Articulation.Servo.b72" />
+    <None Include="scenes\sg-Articulation.Turntable-Inner.b72" />
+    <None Include="scenes\sg-Articulation.Turntable.b72" />
+    <None Include="scenes\sg-Containment.Beam.b72" />
+    <None Include="scenes\sg-Containment.Box.b72" />
+    <None Include="scenes\sg-Containment.Carton.b72" />
+    <None Include="scenes\sg-Containment.Room.b72" />
+    <None Include="scenes\sg-Containment.s72" />
+    <None Include="scenes\sg-Containment.Table.b72" />
+    <None Include="scenes\sg-Grouping.Blobby-Ground.b72" />
+    <None Include="scenes\sg-Grouping.Green-Carton.b72" />
+    <None Include="scenes\sg-Grouping.Purple-Carton.b72" />
+    <None Include="scenes\sg-Grouping.Purple-Torus.b72" />
+    <None Include="scenes\sg-Grouping.s72" />
+    <None Include="scenes\sg-Support.Cylinder.b72" />
+    <None Include="scenes\sg-Support.Ground.b72" />
+    <None Include="scenes\sg-Support.Rounded-Cube.b72" />
+    <None Include="scenes\sg-Support.s72" />
+    <None Include="scenes\sg-Support.Torus.b72" />
+    <None Include="scenes\sg-Test.s72" />
+    <None Include="scenes\sphereflake.s72" />
+    <None Include="scenes\sphereflake.Sphere-1.b72" />
+    <None Include="scenes\sphereflake.Sphere-2.b72" />
+    <None Include="scenes\sphereflake.Sphere-3.b72" />
+    <None Include="scenes\sphereflake.Sphere-4.b72" />
+    <None Include="scenes\sphereflake.Sphere-5.b72" />
+    <None Include="scenes\sphereflake.Sphere-6.b72" />
+    <None Include="scenes\sphereflake.Sphere-7.b72" />
+    <None Include="scenes\sphereflake.Sphere.b72" />
+    <None Include="shaders\shader.frag" />
+    <None Include="shaders\shader.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

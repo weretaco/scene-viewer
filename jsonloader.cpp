@@ -8,6 +8,10 @@ JsonLoader::JsonLoader(std::string fileName) {
     fileStream.open(fileName, std::ios::in);
     root = nullptr;
     prevPos = 0;
+
+    if (fileStream.fail()) {
+        throw std::runtime_error("Failed to open scene file: " + fileName);
+    }
 }
 
 JsonLoader::JsonNode* JsonLoader::parseJson() {
@@ -122,6 +126,8 @@ JsonLoader::JsonNode* JsonLoader::parseNode() {
             rollbackToken();
             node = parseNumber();
             break;
+        default:
+            throw std::runtime_error("Error parsing JSON: Unknown token type");
         }
     }
 

@@ -1586,7 +1586,7 @@ private:
     }
 
     void loadSceneGraph() {
-        JsonLoader sceneLoader("scenes/" + args.sceneFile);
+        JsonLoader sceneLoader(args.sceneFile);
 
         std::cout << "LOADING JSON..." << std::endl << std::endl;
         JsonLoader::JsonNode* sceneJson = sceneLoader.parseJson();
@@ -2289,10 +2289,12 @@ private:
         vkDeviceWaitIdle(device);
     }
 
+
+    // --scene scenes/rotation.s72 --physical-device "NVIDIA RTX A4000" --drawing-size 800 600 --camera Camera
     void animate(std::chrono::high_resolution_clock::time_point curTime) {
         for (const Driver& driver : scene.drivers) {
             Animation& anim = scene.anims[driver.animIndex];
-            const Node& node = scene.nodes[driver.node];
+            Node& node = scene.nodes[driver.node];
 
             float elapsedTime;
 
@@ -2304,12 +2306,6 @@ private:
                 elapsedTime = 0.0f;
             } else {
                 elapsedTime = std::chrono::duration<float, std::chrono::seconds::period>(curTime - anim.startTime).count();
-                std::cout << "Elapsed time: " << elapsedTime << std::endl;
-                std::cout << "Cur frame time: " << driver.times[anim.curFrameIndex] << std::endl;
-
-                if (anim.curFrameIndex < (driver.times.size() - 1)) {
-                    std::cout << "Next frame time: " << driver.times[anim.curFrameIndex + 1] << std::endl;
-                }
 
                 // stop if we got to the end of the animation (could maybe change this to loop instead)
                 while (anim.curFrameIndex < (driver.times.size() - 1) && elapsedTime >= driver.times[anim.curFrameIndex + 1]) {
@@ -2344,23 +2340,35 @@ private:
             }
 
             float timeUntilNextFrame = driver.times[anim.curFrameIndex + 1] - driver.times[anim.curFrameIndex];
-            float timeFraction = elapsedTime / timeUntilNextFrame;
+            float timeFraction = (elapsedTime - driver.times[anim.curFrameIndex]) / timeUntilNextFrame;
 
             if (driver.interpolation == "STEP") {
                 // do nothing since we should already have the right values
             } else if (driver.interpolation == "LINEAR") {
-                for (size_t i = 0; i < dataSize; i++) {
-                    float delta = (nextFrameValues[i] - curValues[i]) * timeFraction;
-                    curValues[i] += delta;
+                // currently assuming that channel == "translation" or channel == "scale"
+
+                glm::vec3 vecCurFrame(curValues[0], curValues[1], curValues[2]);
+                glm::vec3 vecNextFrame(nextFrameValues[0], nextFrameValues[1], nextFrameValues[2]);
+
+                glm::vec3 interpolated = vecCurFrame + ((vecNextFrame - vecCurFrame) * timeFraction);
+
+                if (driver.channel == "translation") {
+                    node.translation = interpolated;
+                } else if (driver.channel == "scale") {
+                    node.scale = interpolated;
                 }
             } else if (driver.interpolation == "SLERP") {
-                glm::vec4 vecCurFrame(curValues[0], curValues[1], curValues[2], curValues[3]);
-                glm::vec4 vecNextFrame(nextFrameValues[0], nextFrameValues[1], nextFrameValues[2], nextFrameValues[3]);
+                // currently assuming that channel == "rotation"
+
+                glm::quat vecCurFrame(curValues[3], curValues[0], curValues[1], curValues[2]);
+                glm::quat vecNextFrame(nextFrameValues[3], nextFrameValues[0], nextFrameValues[1], nextFrameValues[2]);
 
                 float angle = glm::acos(glm::dot(vecCurFrame, vecNextFrame));
                 float denom = glm::sin(angle); 
 
-                glm::vec4 interpolated = (vecCurFrame * glm::sin((1.0f - timeFraction) * angle) + vecNextFrame * glm::sin(timeFraction * angle)) / denom;
+                glm::quat interpolated = (vecCurFrame * glm::sin((1.0f - timeFraction) * angle) + vecNextFrame * glm::sin(timeFraction * angle)) / denom;
+
+                node.rotation = interpolated;
             }
         }
     }
@@ -2399,8 +2407,7 @@ private:
             std::cout << "OUT OF DATE" << std::endl;
             recreateSwapChain();
             return;
-        }
-        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             throw std::runtime_error("failed to acquire swap chain image");
         }
 
@@ -2446,8 +2453,7 @@ private:
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
             framebufferResized = false;
             recreateSwapChain();
-        }
-        else if (result != VK_SUCCESS) {
+        } else if (result != VK_SUCCESS) {
             throw std::runtime_error("failed to present swap chain image!");
         }
 

@@ -19,6 +19,6 @@ layout(location = 1) out vec3 fragColor;
 
 void main() {
     gl_Position = ubo.proj * ubo.view * pc.model * vec4(inPosition, 1.0);
-    fragNormal = inNormal;
+    fragNormal = normalize(vec3(ubo.view * pc.model * vec4(inNormal, 0.0))); // this will only apply the rotation of the modelview matrix to the normal
     fragColor = inColor;
 }

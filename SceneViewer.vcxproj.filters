@@ -13,10 +13,167 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Resource Files\shaders">
+      <UniqueIdentifier>{06a8b87b-39fa-40ed-8ae9-bd0b43883b64}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\scenes">
+      <UniqueIdentifier>{ec9204b0-014f-4109-a5e5-06d65d6ef234}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="launcher.cpp">
+    <ClCompile Include="sceneviewer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="jsonloader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="rg_WindowGLFW.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OrbitCamera.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="jsonloader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rg_WindowGLFW.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rg_Window.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OrbitCamera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rg_WindowManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\shader.frag">
+      <Filter>Resource Files\shaders</Filter>
+    </None>
+    <None Include="shaders\shader.vert">
+      <Filter>Resource Files\shaders</Filter>
+    </None>
+    <None Include="scenes\rotation.AroundX.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\rotation.AroundY.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\rotation.AroundZ.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\rotation.s72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.Bracket.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.Foot.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.Link.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.Plane.002.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.Rounded-Cube.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.s72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.Servo.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.Turntable.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Articulation.Turntable-Inner.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Containment.Beam.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Containment.Box.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Containment.Carton.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Containment.Room.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Containment.s72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Containment.Table.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Grouping.Blobby-Ground.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Grouping.Green-Carton.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Grouping.Purple-Carton.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Grouping.Purple-Torus.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Grouping.s72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Support.Cylinder.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Support.Ground.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Support.Rounded-Cube.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Support.s72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Support.Torus.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sg-Test.s72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.s72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.Sphere.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.Sphere-1.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.Sphere-2.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.Sphere-3.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.Sphere-4.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.Sphere-5.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.Sphere-6.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
+    <None Include="scenes\sphereflake.Sphere-7.b72">
+      <Filter>Resource Files\scenes</Filter>
+    </None>
   </ItemGroup>
 </Project>
