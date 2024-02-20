@@ -2061,8 +2061,7 @@ private:
         mesh.indices = {};
 
         std::ifstream vertexData;
-        // TODO: Remove "scenes/" and move all scene files to the root
-        vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
+        vertexData.open(mesh.src, std::ios::binary | std::ios::in);
 
         // TODO: Maybe I should read directly into a byte array that I can then copy to the vertex buffer in one go
 
