@@ -26,11 +26,11 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_RADIANS
 #define GLM_ENABLE_EXPERIMENTAL
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/quaternion.hpp>
-#include <glm/gtx/string_cast.hpp>
-#include <glm/gtc/matrix_inverse.hpp>
+#include "glm/glm.hpp"
+#include "glm/gtc/matrix_transform.hpp"
+#include "glm/gtx/quaternion.hpp"
+#include "glm/gtx/string_cast.hpp"
+#include "glm/gtc/matrix_inverse.hpp"
 
 #include "jsonloader.h"
 #include "eventloader.h"
@@ -413,6 +413,8 @@ private:
     uint32_t headlessImageIndex = 0;
 
     rg_Window* window;
+
+    bool mousePressed = false;
 
     VkInstance instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
@@ -1034,8 +1036,6 @@ private:
             static_cast<uint32_t>(args.height)
         };
 
-        VkFormat depthFormat = findDepthFormat();
-
         swapChainImages.resize(imageCount);
         swapChainImagesMemory.resize(imageCount);
 
@@ -1242,12 +1242,14 @@ private:
         uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         uboLayoutBinding.pImmutableSamplers = nullptr;
 
+        /*
         VkDescriptorSetLayoutBinding samplerLayoutBinding{};
         samplerLayoutBinding.binding = 1;
         samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         samplerLayoutBinding.descriptorCount = 1;
         samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         samplerLayoutBinding.pImmutableSamplers = nullptr;
+        */
 
         //std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
         std::array<VkDescriptorSetLayoutBinding, 1> bindings = { uboLayoutBinding };
@@ -1262,8 +1264,8 @@ private:
     }
 
     void createGraphicsPipeline() {
-        std::vector<char> vertShaderCode = readFile("shaders/vert.spv");
-        std::vector<char> fragShaderCode = readFile("shaders/frag.spv");
+        std::vector<char> vertShaderCode = readFile("vert.spv");
+        std::vector<char> fragShaderCode = readFile("frag.spv");
 
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -1331,7 +1333,7 @@ private:
         colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
         colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
         colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        colorBlendAttachment.dstAlphaBlendFactor - VK_BLEND_FACTOR_ZERO;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
         colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
 
         VkPipelineDepthStencilStateCreateInfo depthStencil{};
@@ -1849,7 +1851,7 @@ private:
 
                     scene.meshes.back().attributes.resize(3);
 
-                    for (const std::pair<std::string, JsonLoader::JsonNode*>& attr : attributes) {
+                    for (const std::pair<const std::string, JsonLoader::JsonNode*>& attr : attributes) {
                         std::map<std::string, JsonLoader::JsonNode*>& attrVal = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(attr.second->value);
 
                         Attribute a = {
@@ -2331,10 +2333,12 @@ private:
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
 
+            /*
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             imageInfo.imageView = textureImageView;
             imageInfo.sampler = textureSampler;
+            */
 
             std::array<VkWriteDescriptorSet, 1> descriptorWrites{};
 
@@ -2431,7 +2435,6 @@ private:
 
             vkDeviceWaitIdle(device);
         } else {
-            std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
             std::chrono::high_resolution_clock::time_point curTime;
 
             while (!window->windowShouldClose()) {
@@ -2537,9 +2540,9 @@ private:
         std::vector<VkFormat> formatsBGR = { VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM };
 		const bool colorSwizzle = (std::find(formatsBGR.begin(), formatsBGR.end(), VK_FORMAT_R8G8B8A8_UNORM) != formatsBGR.end());
 
-        for (int32_t y = 0; y < swapChainExtent.height; y++) {
+        for (uint32_t y = 0; y < swapChainExtent.height; y++) {
             unsigned int *row = (unsigned int*)imagedata;
-            for (int32_t x = 0; x < swapChainExtent.width; x++) {
+            for (uint32_t x = 0; x < swapChainExtent.width; x++) {
                 if (colorSwizzle) {
                     file.write((char*)row + 2, 1);
                     file.write((char*)row + 1, 1);
@@ -2581,7 +2584,7 @@ private:
                 }
             }
 
-            int dataSize;
+            size_t dataSize;
 
             if (driver.channel == "translation" || driver.channel == "scale") {
                 dataSize = 3;
@@ -2648,10 +2651,6 @@ private:
     }
 
     void handleEvents() {
-        // handle camera move start and stop
-
-        static bool mousePressed = false;
-
         int state = glfwGetMouseButton((GLFWwindow*)(window->getNativeWindowHandle()), GLFW_MOUSE_BUTTON_LEFT);
 
         if (state == GLFW_PRESS) {
@@ -2762,10 +2761,10 @@ private:
     }
 
     void updateUniformBuffer(uint32_t currentFrame) {
-        static auto startTime = std::chrono::high_resolution_clock::now();
+        //static auto startTime = std::chrono::high_resolution_clock::now();
 
-        std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+        //std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
+        //float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
         //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
         ubo.view = getViewFromCamera();

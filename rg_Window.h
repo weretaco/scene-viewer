@@ -19,6 +19,9 @@ class rg_Window {
         rg_Window(int width, int height, std::string title) {
         }
 
+        virtual ~rg_Window() {
+        }
+
         virtual void pollEvents() = 0;
         virtual void waitEvents() = 0;
         virtual bool windowShouldClose() = 0;

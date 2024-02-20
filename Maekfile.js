@@ -1,17 +1,3 @@
-//Run this (javascript) file with node:
-//$ node Maekfile.js [-jN] [-v] [-q] [--] [target1] [target2] [...]
-//
-// Maekfile.js will [re-]build all the specified targets.
-// Results are re-used by content hash if they match "maek-cache.json"; delete that file to force a full rebuild.
-//
-//Command line options:
-//  -jN      limit on parallel jobs; defaults to number of cpu cores + 1
-//  -v       verbose output; prints more info
-//  -q       quit on first error (otherwise builds as much as possible)
-//  --       optional separator between command line switches and targets (useful if you have a target named '-j1')
-//  targetN  target name. Posix-style path to a file to build, or an abstract target (word starting with ':')
-//
-
 //maek is configured using properties and methods of the `maek` object:
 const maek = init_maek();
 // (it's a quirk of javascript that function definitions anywhere in scope get 'hoisted'
@@ -20,26 +6,78 @@ const maek = init_maek();
 //Read onward to discover how to configure Maek for your build!
 //======================================================================
 
-//set default targets to build (can be overridden by command line options):
-maek.TARGETS = ["dist/main" + (maek.OS === "windows" ? ".exe" : "")];
+const NEST_LIBS = `./${maek.OS}`;
+
+//set compile flags (these can also be overridden per-task using the "options" parameter):
+if (maek.OS === "windows") {
+	maek.options.CPPFlags.push(
+		`/O2`, //optimize
+		//include paths for nest libraries:
+		`/I${NEST_LIBS}/includes`,
+		//#disable a few warnings:
+		`/wd4146`, //-1U is still unsigned
+		`/wd4297`, //unforunately SDLmain is nothrow
+		`/wd4100`, //unreferenced formal parameter
+		`/wd4201`, //nameless struct/union
+		`/wd4611`  //interaction between setjmp and C++ object destruction
+	);
+	maek.options.LINKLibs.push(
+		`/MANIFEST:EMBED`, `/MANIFESTINPUT:set-utf8-code-page.manifest`
+	);
+} else if (maek.OS === "linux") {
+	maek.options.CPPFlags.push(
+		`-O2`, //optimize
+		//include paths for nest libraries:
+		`-I${NEST_LIBS}/includes`
+	);
+	maek.options.LINKLibs.push(
+		//linker flags for nest libraries:
+		`-lglfw`, `-lvulkan`, `-ldl`, `-lpthread`, `-lX11`, `-lXxf86vm`, `-lXrandr`, `-lXi`,
+	);
+} else if (maek.OS === "macos") {
+	maek.options.CPPFlags.push(
+		`-O2`, //optimize
+		//include paths for nest libraries:
+		`-I${NEST_LIBS}/includes`
+	);
+	maek.options.LINKLibs.push(
+		//linker flags for nest libraries:
+	);
+}
+//use COPY to copy a file
+// 'COPY(from, to)'
+// from: file to copy from
+// to: file to copy to
+let copies = [
+	maek.COPY(`shaders/vert.spv`, `dist/vert.spv`),
+	maek.COPY(`shaders/frag.spv`, `dist/Rfrag.spv`),
+];
 
 //call rules on the maek object to specify tasks.
 // rules generally look like:
 //  output = maek.RULE_NAME(input [, output] [, {options}])
 
-//'[objFile =] CPP(cppFile [, objFileBase] [, options])' compiles a c++ file:
+//the '[objFile =] CPP(cppFile [, objFileBase] [, options])' compiles a c++ file:
 // cppFile: name of c++ file to compile
 // objFileBase (optional): base name object file to produce (if not supplied, set to options.objDir + '/' + cppFile without the extension)
 //returns objFile: objFileBase + a platform-dependant suffix ('.o' or '.obj')
-const main_obj = maek.CPP('main.cpp');
-const test_obj = maek.CPP('test.cpp');
+const game_objs = [
+	maek.CPP('sceneviewer.cpp'),
+	maek.CPP('jsonloader.cpp'),
+	maek.CPP('eventloader.cpp'),
+	maek.CPP('OrbitCamera.cpp'),
+	maek.CPP('rg_WindowGLFW.cpp'),
+	maek.CPP('rg_WindowNativeLinux.cpp')
+];
 
-//'[exeFile =] LINK(objFiles, exeFileBase, [, options])' links an array of objects into an executable:
+//the '[exeFile =] LINK(objFiles, exeFileBase, [, options])' links an array of objects into an executable:
 // objFiles: array of objects to link
 // exeFileBase: name of executable file to produce
 //returns exeFile: exeFileBase + a platform-dependant suffix (e.g., '.exe' on windows)
-const main_exe = maek.LINK([main_obj], 'dist/main');
-const test_exe = maek.LINK([test_obj], 'test/game-test');
+const game_exe = maek.LINK(game_objs, 'dist/game');
+
+//set the default target to the game (and copy the readme files):
+maek.TARGETS = [game_exe, ...copies];
 
 //======================================================================
 //Now, onward to the code that makes all this work:

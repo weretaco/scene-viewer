@@ -34,7 +34,7 @@ std::vector<EventLoader::Event> EventLoader::parseEvents() {
             throw std::runtime_error("Unexpected event type: " + params[1]);
         }
 
-        for (int i = 2; i < params.size(); i++) {
+        for (std::size_t i = 2; i < params.size(); i++) {
             events.back().args.push_back(params[i]);
         }
     }

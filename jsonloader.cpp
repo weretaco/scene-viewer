@@ -22,7 +22,7 @@ JsonLoader::JsonNode* JsonLoader::parseJson() {
             if (!root) {
                 root = node;
             }
-        } catch (std::logic_error e) {
+        } catch (const std::logic_error& e) {
             break;
         }
     }

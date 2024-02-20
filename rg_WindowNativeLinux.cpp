@@ -28,7 +28,7 @@ void rg_WindowNativeLinux::cleanup() {
 rg_WindowNativeLinux::rg_WindowNativeLinux(int width, int height, std::string title)
 : rg_Window(width, height, title) {
     int blackColor = BlackPixel(dpy, DefaultScreen(dpy));
-    int whiteColor = WhitePixel(dpy, DefaultScreen(dpy));
+    //int whiteColor = WhitePixel(dpy, DefaultScreen(dpy));
 
     window = XCreateSimpleWindow(
                 dpy,
@@ -81,7 +81,7 @@ void rg_WindowNativeLinux::waitEvents() {
     XEvent e;
     XNextEvent(dpy, &e);
 
-    if (e.type == ClientMessage && e.xclient.data.l[0] == rg_WindowNativeLinux::wmDeleteMessage) {
+    if (e.type == ClientMessage && (unsigned)e.xclient.data.l[0] == rg_WindowNativeLinux::wmDeleteMessage) {
         XDestroyWindow(dpy,e.xclient.window);
         XFlush(dpy);
 
