@@ -50,7 +50,7 @@ if (maek.OS === "windows") {
 // to: file to copy to
 let copies = [
 	maek.COPY(`shaders/vert.spv`, `dist/vert.spv`),
-	maek.COPY(`shaders/frag.spv`, `dist/Rfrag.spv`),
+	maek.COPY(`shaders/frag.spv`, `dist/frag.spv`),
 ];
 
 //call rules on the maek object to specify tasks.
