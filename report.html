@@ -104,15 +104,27 @@ code var {
 </h1>
 
 <p class="placeholder">
-Summarize, in about one paragraph, your approach to the scene graph assignment.
-How did you structure your code?
-What's cool about it? Are there parts you weren't able to complete?
+
+	I initially built the json parser and structures to store the scenegraph, which wre not dependent on the
+the existing Vulkan starter code. The parser was fun to work on and is generic. It doesn't support some aspects
+of json that don't occur in the s72 files, but it could easily be used as-is for other projects. After that, I
+replaced the code to load the minimal set of geometry from the tutorial with code that loaded data from the s72 scene.
+I kept the logic the same, nit had separate buffers for every mesh. Then, I started adding support for the differnt cli
+flags. I made a somewhat genercic cli parser to handle them. I kept the same general code structure, but incorporated
+the different features, such as culling, animation, and headless mode into it as seamlessly as I could. Since most of the
+setup logic for regular execution and headless mode is the same, I ended up modifying many of the existing functions to
+slightly change their behavior based on whether the app was running in headless mode.
+	Unfortunately, I wasn't able to complete everything. I implemented the basic logic for frustum culling, but something
+about my equations was wrong and visible objects were getting culled. I also did not implement the animation functionality
+in headless mode. To do so, I'd have to rewrite how my existing code kept track of timing, but I ran out of time. I also
+didn't have time to create my own animation or do much performance testing.
+
 </p>
 
 <h2>My Animation <span class="atag creative">A1-create</span></h2>
 
 <p class="placeholder">
-Describe your animation and include a screen recording showing it running in real-time:
+I did not have enough time to create an animation
 </p>
 
 <video>
@@ -128,27 +140,21 @@ Describe how you created your animation.
 
 <h3>Command-line Arguments</h3>
 
-<p class="placeholder">
-Document the command-line arguments that can be used to control your viewer.
-Include both the command-line arguments required by the assignment statement and any additional arguments you decided to add.
-</p>
-
 <ul>
 <li class="placeholder"><code>--scene <var>scene.s72</var></code> -- required -- load scene from <code><var>scene.s72</var></code></li>
-<li class="placeholder">...</li>
+<li class="placeholder"><code>--camera <var>name</var></code> -- optional -- render the scene from the specified camera's POV. Otherwise, a default orbit camera is used</li>
+<li class="placeholder"><code>--physical-device <var>name</var></code> -- required -- uses the physical device whose VkPhysicalDeviceProperties::deviceName matches <var>name</var></li>
+<li class="placeholder"><code>--list-physical-devices</code> -- optional -- lists all the physical devices on the system, any of which could be used with <code>--physical-device</code></li>
+<li class="placeholder"><code>--drawing-size <var>w</var> <var>h</var></code> -- optional -- sets the initial size of the window to the specified dimensions. Otherwise, creates an 800x600 window</li>
+<li class="placeholder"><code>--culling <var>none|frustum</var></code> -- optional -- specifies whether to enable AABB frustum culling. The default is none.</li>
+<li class="placeholder"><code>--headless <var>events</var></code> -- optional -- will start in headless mode, reading timing events from the <var>events</var> file, and rendering some frames as PPM images</li>
 </ul>
 
 <h3>Controls</h3>
 
-<p class="placeholder">
-Document the keyboard and mouse controls used to control your viewer when run interactively.
-Note that the controls below are placeholders not requirements.
-</p>
-
 <ul>
 <li class="placeholder"><kbd>LMB+Drag</kbd> orbit the camera.</li>
-<li class="placeholder"><kbd>F5</kbd> switch to/from the debug camera.</li>
-<li class="placeholder">...</li>
+<li class="placeholder"><kbd>Z</kbd> switch switch between the different cameras in the scene</li>
 </ul>
 
 
@@ -167,27 +173,45 @@ This section also forms a road map to your code that we can use while grading.
 <h3>Support Code for Math and Vulkan</h3>
 
 <p class="placeholder">
-Cover, at least:
-what math (vecr/mat/quat) classes and operations you implemented;
-any clever approaches to avoid writing duplicated code for, e.g., <code>vec2</code>, <code>vec3</code>, <code>vec4</code>;
-how your code gets a window and a swapchain;
-how you decided to handle Vulkan resource creation and destruction (e.g., where do pipelines get created? where do they get destroyed?).
-</p>
+I ran out of time to write my own math library, but instead used glm. However, if I had done so, I would have probably started
+implementing the vectors as C++ vectors and written general functions for operations like addition, cross product, dot product,
+and normalizing vectors. Doing this for matrices would not be as straughtforward, but I'd potentially just focus on 4x4 matrices.
+
+Regarding my Vulkan code, I mostly kept the same structure as the tutorial, but I tried to keept very similar entities, such as
+images and images together and similarly named. If I were to refactor the code more, I'd probably create structs to more explcitly
+group them and let their lifecycles be managed more easily. For getting a window, I had a generic window class that called system-specific window logic under the hood, basically like
+GLFW does. I worked mostly in Linux, so I had a linux-specific window implementation, and a GLFW "implementation" that was msotly a
+passthrough to GLFW functions, but that I could use to test my Linux-specific implementation with. I kept the swapchain logic mostly
+the same as the tutorial, but I did generalize the concept somewhat so that any set of images could potentially act as the swapchain.
 
 <h3>Loading scenes, Mesh data <span class="atag">A1-load</span></h3> 
 
 <p class="placeholder">
-Cover, at least:
-how your viewer stores mesh and scene data;
-your approach to parsing JSON.
+
+	I built a generic, although somewhat limited, JSON parser first. It doesn't handle cases that don't occur in the scene files, like
+loading booleans, and escape sequences in strings. I parsed parsed the JSON into tokens. A token was usually one character, but could
+contain multiple. For instance, a colon, open curly brace, or close square bracket, would all be tokens. However, a multi-digit number
+or a string would also be one token. Once the file was "grouped" into tokens, I parsed those tokens into higher-level JSON entities:
+objects, arrays, strings, and numbers, in a tree-like strucutre stemming from the root object. After that, I took this generic JSON
+representation and parsed it into scene elements, relying on the known structure of s72 files. For instance, I could assume the
+top-level element was an array, and its children fell into a small group of well-defined types.
+	I stored the scengraph in mostly the same way as the json. However, I remapped the indicies and stored objects of each type (i.e.,
+nodes, cameras, etc) in different arrays. When initially reading in the objects, I mapped their "global" indicies to indecies into the
+array of their type. This restructuring made it easier to, for instance, loop through only the meshes, for when I render them, or only
+the cameras, when I want to let the user cycle through them. The mesh vertex data is loaded from the b72 files and saved as arrays along
+with the other data on the respective Mesh object.
 </p>
 
 <h3>Drawing the scene. <span class="atag">A1-show</span></h3>
 
 <p class="placeholder">
-Cover, at least:
-how your code computes camera transformations;
-how your code get transformation and vertex data to your shaders.
+	Since my scene is already organized in a tree-like structure with parent nodes containing child indicies, I just do an in-order traversal of the tree,
+such that each child multiplies it's own model matrix by that of its parent. When I encounter a mesh in the traversal, I make a draw call to render it,
+using the combined model matrix, along with the projection and view patrices. Once I have the correct model matrix, I also do the frustum culling check,
+although that doesn't currently function correctly.
+	I send the vertex data for each mesh in a separate buffer. The projection and view matrices I send in a uniform buffer once per frame, and the model
+matrices I send using a push constant that I update with each draw call. It would be more efficient to create an array of model matrices in a uniform buffer
+and send indicies into that array as vertex data, in which case I could potentially draw all the objects for a frame in one call.
 </p>
 <p class="placeholder">
 Include a screenshot of your viewer drawing an example scene.
@@ -207,9 +231,12 @@ Include a screen recording of you moving the camera in a scene.
 <h3>Frustum culling <span class="atag">A1-cull</span></h3>
 
 <p class="placeholder">
-Cover, at least:
-your culling approach;
-what bounding volume you use for meshes and where it is computed.
+
+I implemented AABB frustum culling and stored each AABB as a pair of points, a min and a max. The AABB itself is only computed when the mesh is loaded,
+but it's transformed by the corresponding object's model matrix every frame. I update all the matrices for that frame, then compare each AABB
+with the 6 bounding planes of the frustum, then render the corresponding object, assuming it wasn't culled. However, something is wrong with my
+intersection test, and objects that should be rendered are often culled
+
 </p>
 <p class="placeholder">
 Include a screenshot or recording showing that culling is working (e.g., by using a debug camera to show that meshes outside the user camera's view aren't being drawn).
@@ -218,10 +245,15 @@ Include a screenshot or recording showing that culling is working (e.g., by usin
 <h3>Animating the scene <span class="atag">A1-move</span></h3>
 
 <p class="placeholder">
-Cover, at least:
-how your viewer stores keyframes;
-where your code updates animations;
-how your code computes elapsed time (if it isn't running in headless mode!).
+	My viewer stores keyframes by loading them into an array of times and an array of values, just like they're stored in the scene file.
+My code has an update loop that gets the current time, and I also have the current frame for each animation. I compare that time
+to the time of the current frame and the next frame, to see if it's time to switch to the next frame (i.e. when the current time
+is equal to or greater than the time of the next animation). Then, I interpolate to get the correct current value based on the current
+time and the times of the two keyframes.
+	I currently don't have animations working correctly in headless mode, but the main thing I am missing is for each animation to keep
+track of its own start time as opposed to using a common start time for all animations. If I did that, I could pretty easily use my
+existing system to play animations in headless mode, and potentially at different speeds, just by multiplying all the keyframe times
+by a factor.
 </p>
 
 <p class="placeholder">
@@ -231,15 +263,25 @@ Include a screen recording showing an animation being played back by your viewer
 <h3>Handling headless mode <span class="atag">A1-hide</span></h3>
 
 <p class="placeholder">
-Cover, at least:
-how your code deals with not having a window;
-how you deal with getting the timestamps from the events file to (e.g.) animation updates;
-any extra events you decided to support.
+	The major thing the window provided was the swap chain. Since the swap chain is basically just a
+set of images, I decided to simulate a 3-image swapchain, created 3 in-memory images, and rotated
+through them for each frame, to simulate the logic flow of requesting images from an actual swap chain.
+Since I didn't have a window to get a width and height from, I relied on the --drawing-size CLI arguments.
+	I handled the retrieving timestamps from the events file by reading them sequentially and returning
+them to the renderer instead of actual clock time. I'd render as I could in real time, but would only
+only perform one action per simulated timestep, which made it easy to, for instance, save an image of
+one of the frames at the right time. However, my animations timing logic would need to be rewritten
+to support running at different speeds or starting to animate some time after the program started.
 </p>
 
 <h3>Performance improvements <span class="atag extra">A1x-fast</span></h3>
 <p class="placeholder">
-Discuss which performance improvements you chose to pursue and how you implemented them.
+	I tried to improve performance by implementing AABB culling. I represented
+	them using a min and max point, generated by testing the mesh vertices. I generated
+	the bounding boxes on initial scene load, but transformed them with their associated
+	mesh's model matrix every frame. I performed the culling tests with the frustum in
+	world space. However, my culling test did not work properly, and I would often cull
+	meshes inside the frustum.
 </p>
 
 <p class="placeholder">
@@ -253,24 +295,17 @@ This section demonstrates that you have tested your code, including finding its 
 </p>
 
 <p class="placeholder">
-Before getting into the tests, describe here the relevant information about your testing system(s).
-(CPU, GPU, Memory, driver versions, OS version, ...  -- anything you think might be relevant!)
+Apart from just trying my code on the different sample s72 scenes, I did not have time to test it.
 </p>
 
 <h3>Culling</h3>
 <p class="placeholder">
-Demonstrate a scene / camera angle where your culling code improves performance; and demonstrate one where it does not improve performance.
-(If you developed more than one culling method, demonstrate the performance gain/loss from each of them in this section.)
-</p>
-
-<p class="placeholder">
-Use charts to summarize performance and graphs to show overall performance.
-Include screenshots of test scenes.
+I didn't get culling working correctly, so I don't have any scenes where it improved performance.
 </p>
 
 <h3>Bottlenecks</h3>
 <p class="placeholder">
-Demonstrate your code bottlenecking on scene traversal (CPU), vertex processing/assembly (GPU), and fragment processing/write-back (GPU).
+I did not have time to profile my code for bottlenecks.
 </p>
 
 
@@ -290,13 +325,14 @@ This plot shows the ...
 <h3>Performance Improvements</h3>
 
 <p class="placeholder">
-For any other performance improvements you attempted, include comparisons showing them working (or not working).
-Include screenshots of any test scenes and graphs or charts showing performance differences.
+I did not have time to test performance improvements
 </p>
 
 <h2>Feedback</h2>
 <p class="placeholder">
-This is the end of the structured report. Feel free to add feedback about A1 (or A0!) to this section.
+I enjoyed implmenting (or trying to implement) all the features in this assignment, but I wish we had more time to dedicate to profiling. Also,
+while I agree that writing things like a json parser and math library are useful, given that there was already a lot to do in this assignment that's
+more directly related to rendering, I think allowing us to use existing libraries for those features would've let us focus more on the rendering side.
 </p>
 
 
