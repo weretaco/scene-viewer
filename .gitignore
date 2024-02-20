@@ -4,6 +4,7 @@ dist/
 Debug/
 x64/
 *.spv
+*.ppm
 
 maek-cache.json
 SceneViewer

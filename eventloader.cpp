@@ -16,8 +16,6 @@ std::vector<EventLoader::Event> EventLoader::parseEvents() {
 
     std::string line;
     while (std::getline(fileStream, line)) {
-        std::cout << line << std::endl;
-
         std::vector<std::string> params = splitLine(line);
 
         events.push_back({});
