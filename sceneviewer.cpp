@@ -52,9 +52,6 @@ const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-// ./SceneViewer --scene scenes/rotation.s72 --physical-device "" --camera name --drawing-size w h --culling none|frustum|... --headless events
-// ./SceneViewer --scene scenes/rotation.s72 --physical-device "" --drawing-size 1600 1200 --camera Camera --culling none/frustum/... --headless example.events.txt
-
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
@@ -368,6 +365,7 @@ struct CLIArguments {
     int height = 0;
     std::string eventsFile = "";
     bool headless = false;
+    std::string culling = "none";
 };
 
 // forward declarations, implementations at the end of this file
@@ -573,7 +571,11 @@ private:
         std::cout << std::endl << "Handling " << arr[0] << std::endl;
         std::cout << "culling mode: " << arr[1] << std::endl;
 
-        // TODO: I can implement this now
+        args.culling = arr[1];
+
+        if (args.culling != "frustum" && args.culling != "none") {
+            throw std::runtime_error("Unexpected culling mode: " + args.culling + " (must be \"none\" or \"frustum\")");
+        }
     }
 
     void handleArgHeadless(const std::array<std::string, 2> &arr) {
@@ -1994,10 +1996,8 @@ private:
 
             glm::vec3 pos(transform * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
-            if (frustumIntersectsAABB(frustum, center, halfExtent)) {
+            if (args.culling == "none" || frustumIntersectsAABB(frustum, center, halfExtent)) {
                 renderMesh(commandBuffer, mesh, transform);
-            } else {
-                std::cout << "CULLED " << mesh.name << std::endl;
             }
         }
 
@@ -2865,7 +2865,6 @@ private:
     }
 
     bool frustumIntersectsAABB(const Frustum& frustum, glm::vec3 center, glm::vec3 extents) {
-        /*
         if (!planeIntersectsAABB(frustum.nearPlane, center, extents)) {
             return false;
         }
@@ -2884,7 +2883,6 @@ private:
         if (!planeIntersectsAABB(frustum.bottomPlane, center, extents)) {
             return false;
         }
-        */
         
         return true;
     }
