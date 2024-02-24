@@ -18,10 +18,8 @@
 #include <stdexcept>
 #include <vector>
 
-/*
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
-*/
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_RADIANS
@@ -32,12 +30,15 @@
 #include "glm/gtx/string_cast.hpp"
 #include "glm/gtc/matrix_inverse.hpp"
 
+#include <vulkan/vk_enum_string_helper.h>
+
 #include "jsonloader.h"
 #include "eventloader.h"
 #include "rg_WindowManager.h"
 #include "OrbitCamera.h"
 
-#include <vulkan/vk_enum_string_helper.h>
+#include "VertexColor.h"
+#include "VertexTexture.h"
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -101,13 +102,15 @@ void DestroyDebugUtilsMessengerEXT(
     }
 }
 
+// probably create a base vertex class and children, or a Vertex abstract class
+// the one thing all Vertex classes must have are positions
 struct Vertex {
     glm::vec3 pos;
     glm::vec3 normal;
-    glm::vec3 color;
+    glm::vec4 color;
 
-    static std::array<VkVertexInputBindingDescription, 1> getBindingDescriptions() {
-        std::array<VkVertexInputBindingDescription, 1> bindingDescriptions{};
+    static std::vector<VkVertexInputBindingDescription> getBindingDescriptions() {
+        std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
 
         bindingDescriptions[0].binding = 0;
         bindingDescriptions[0].stride = sizeof(Vertex);
@@ -116,8 +119,8 @@ struct Vertex {
         return bindingDescriptions;
     }
 
-    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
-        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+    static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() {
+        std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
 
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
@@ -132,6 +135,7 @@ struct Vertex {
         attributeDescriptions[2].binding = 0;
         attributeDescriptions[2].location = 2;
         attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+        //attributeDescriptions[2].format = VK_FORMAT_R8G8B8A8_UNORM;
         attributeDescriptions[2].offset = offsetof(Vertex, color);
 
         return attributeDescriptions;
@@ -206,6 +210,7 @@ struct Mesh {
     uint32_t stride;
     Indices indicesData;
     std::vector<Attribute> attributes;
+    std::optional<uint32_t> material;
 
     std::vector<Vertex> vertices;
     std::vector<uint16_t> indices;
@@ -298,12 +303,75 @@ struct Animation {
     uint16_t curFrameIndex;
 };
 
+struct Texture {
+    std::string src;
+    enum class Type {
+        Tex2D,
+        TexCube
+    };
+    enum class Format {
+        linear,
+        rgbe
+    };
+    Type type;
+    Format format;
+};
+
+template <typename T>
+struct MaterialProp {
+    enum class Type {
+        VALUE,
+        SRC
+    };
+    std::variant<
+        T,
+        std::string
+    > value;
+    Type type;
+};
+
+struct PbrProps {
+    MaterialProp<glm::vec3> albedo;
+    MaterialProp<float> roughness;
+    MaterialProp<float> metalness;
+};
+
+struct LambertianProps {
+    MaterialProp<glm::vec3> baseColor;
+};
+
+struct Material {
+    std::string name;
+    std::optional<Texture> normalMap;
+    std::optional<Texture> displacementMap;
+
+    enum class Type {
+        PBR,
+        LAMBERTIAN,
+        MIRROR,
+        ENVIRONMENT,
+        SIMPLE
+    };
+    std::variant<
+        PbrProps,
+        LambertianProps,
+        std::monostate
+    > value;
+    Type type;
+};
+
+struct Environment {
+    std::string name;
+    Texture radiance;
+};
+
 struct Scene {
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
     std::vector<Camera> cameras;
     std::vector<Driver> drivers;
     std::vector<Animation> anims;
+    std::vector<Material> materials;
     std::vector<uint16_t> roots;
 
     // maps indices of JSON nodes to the index of the corresponding struct in one of the arrays of the Scene object
@@ -366,6 +434,16 @@ struct CLIArguments {
     std::string eventsFile = "";
     bool headless = false;
     std::string culling = "none";
+};
+
+struct GraphicsPipeline {
+    VkPipelineLayout pipelineLayout;
+    VkPipeline pipeline;
+
+    void destroy(VkDevice device) {
+        vkDestroyPipeline(device, pipeline, nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+    }
 };
 
 // forward declarations, implementations at the end of this file
@@ -436,8 +514,9 @@ private:
 
     VkRenderPass renderPass;
     VkDescriptorSetLayout descriptorSetLayout;
-    VkPipelineLayout pipelineLayout;
-    VkPipeline graphicsPipeline;
+
+    GraphicsPipeline colorPipeline;
+    GraphicsPipeline texturePipeline;
 
     VkCommandPool commandPool;
 
@@ -658,7 +737,8 @@ private:
 
         createUniformBuffers();
 
-        createGraphicsPipeline();
+        createGraphicsPipeline(colorPipeline, "color");
+        //createGraphicsPipeline(texturePipeline, "texture");
         //createTextureImage();
         //createTextureImageView();
         //createTextureSampler();
@@ -1263,9 +1343,9 @@ private:
             "failed to create descriptor set layou");
     }
 
-    void createGraphicsPipeline() {
-        std::vector<char> vertShaderCode = readFile("vert.spv");
-        std::vector<char> fragShaderCode = readFile("frag.spv");
+    void createGraphicsPipeline(GraphicsPipeline& pipeline, std::string shader) {
+        std::vector<char> vertShaderCode = readFile("shaders/" + shader + "-vert.spv");
+        std::vector<char> fragShaderCode = readFile("shaders/" + shader + "-frag.spv");
 
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -1284,8 +1364,8 @@ private:
 
         VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
-        std::array<VkVertexInputBindingDescription, 1> bindingDescriptions = Vertex::getBindingDescriptions();
-        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions = Vertex::getAttributeDescriptions();
+        std::vector<VkVertexInputBindingDescription> bindingDescriptions = Vertex::getBindingDescriptions();
+        std::vector<VkVertexInputAttributeDescription> attributeDescriptions = Vertex::getAttributeDescriptions();
 
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1382,7 +1462,7 @@ private:
         pipelineLayoutInfo.pPushConstantRanges = &range;
 
         vkCheckResult(
-            vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout),
+            vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipeline.pipelineLayout),
             "failed to create pipeline layout");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -1397,14 +1477,14 @@ private:
         pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlending;
         pipelineInfo.pDynamicState = &dynamicState;
-        pipelineInfo.layout = pipelineLayout;
+        pipelineInfo.layout = pipeline.pipelineLayout;
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
         pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
         pipelineInfo.basePipelineIndex = -1;
 
         vkCheckResult(
-            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline),
+            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline.pipeline),
             "failed to created graphics pipeline");
 
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
@@ -1847,9 +1927,18 @@ private:
                         scene.meshes.back().indicesData = { "", 0, ""};
                     }
 
+                    if (obj.count("material") > 0) {
+                        scene.meshes.back().material = static_cast<uint32_t>(std::get<float>(obj["material"]->value));
+                    }
+
                     std::map<std::string, JsonLoader::JsonNode*>& attributes = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["attributes"]->value);
 
-                    scene.meshes.back().attributes.resize(3);
+                    if (obj.count("material") > 0) {
+                        scene.meshes.back().attributes.resize(5);
+                    } else {
+                        // this mesh uses the simple material
+                        scene.meshes.back().attributes.resize(3);
+                    }
 
                     for (const std::pair<const std::string, JsonLoader::JsonNode*>& attr : attributes) {
                         std::map<std::string, JsonLoader::JsonNode*>& attrVal = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(attr.second->value);
@@ -1863,12 +1952,31 @@ private:
                         };
 
                         // hack to get attributes in the right order, should really sort by offset
-                        if (a.name == "POSITION") {
-                            scene.meshes.back().attributes[0] = a;
-                        } else if (a.name == "NORMAL") {
-                            scene.meshes.back().attributes[1] = a;
-                        } else if (a.name == "COLOR") {
-                            scene.meshes.back().attributes[2] = a;
+                        if (obj.count("material") > 0) {
+                            scene.meshes.back().attributes.resize(5);
+
+                            if (a.name == "POSITION") {
+                                scene.meshes.back().attributes[0] = a;
+                            } else if (a.name == "NORMAL") {
+                                scene.meshes.back().attributes[1] = a;
+                            } else if (a.name == "TANGENT") {
+                                scene.meshes.back().attributes[2] = a;
+                            } else if (a.name == "TEXCOORD") {
+                                scene.meshes.back().attributes[3] = a;
+                            } else if (a.name == "COLOR") {
+                                scene.meshes.back().attributes[4] = a;
+                            }
+                        } else {
+                            // this mesh uses the simple material
+                            scene.meshes.back().attributes.resize(3);
+
+                            if (a.name == "POSITION") {
+                                scene.meshes.back().attributes[0] = a;
+                            } else if (a.name == "NORMAL") {
+                                scene.meshes.back().attributes[1] = a;
+                            } else if (a.name == "COLOR") {
+                                scene.meshes.back().attributes[2] = a;
+                            }
                         }
                     }
 
@@ -1917,6 +2025,45 @@ private:
 
                     scene.anims.push_back({});
                     scene.anims.back().curFrameIndex = std::numeric_limits<uint16_t>::max();
+                } else if (sceneType == "MATERIAL") {
+                    scene.typeIndices.push_back(scene.materials.size());
+                    scene.materials.push_back({});
+
+                    scene.materials.back().name = std::get<std::string>(obj["name"]->value);
+
+                    if (obj.count("normalMap") > 0) {
+                        std::map<std::string, JsonLoader::JsonNode*>& jsonObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["normalMap"]->value);
+
+                        scene.materials.back().normalMap = {
+                            src: std::get<std::string>(jsonObj["src"]->value),
+                            type: Texture::Type::Tex2D,
+                            format: Texture::Format::linear
+                        };
+                    } else {
+                        scene.materials.back().normalMap = {
+                            src: "",
+                            type: Texture::Type::Tex2D,
+                            format: Texture::Format::linear
+                        };
+                    }
+
+                    if (obj.count("displacementMap") > 0) {
+                        std::map<std::string, JsonLoader::JsonNode*>& jsonObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["displacementMap"]->value);
+
+                        scene.materials.back().displacementMap = {
+                            src: std::get<std::string>(jsonObj["src"]->value),
+                            type: Texture::Type::Tex2D,
+                            format: Texture::Format::linear
+                        };
+                    } else {
+                        scene.materials.back().displacementMap = {
+                            src: "",
+                            type: Texture::Type::Tex2D,
+                            format: Texture::Format::linear
+                        };
+                    }
+                } else if (sceneType == "ENVIRONMENT") {
+                    Environment env; // not sure if I should one or more than one per scene
                 }
             } else {
                 std::cout << "UNEXPECTED JSON TYPE!" << std::endl;
@@ -2011,14 +2158,14 @@ private:
     }
 
     void renderMesh(VkCommandBuffer& commandBuffer, const Mesh& mesh, glm::mat4 transform) {
-        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
+        vkCmdPushConstants(commandBuffer, colorPipeline.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
 
         VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
         vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline.pipelineLayout,
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
@@ -2063,7 +2210,11 @@ private:
         mesh.indices = {};
 
         std::ifstream vertexData;
-        vertexData.open(mesh.src, std::ios::binary | std::ios::in);
+        vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
+
+        if (vertexData.fail()) {
+            throw std::runtime_error("Failed to load vertices from " + mesh.src + "!");
+        }
 
         // TODO: Maybe I should read directly into a byte array that I can then copy to the vertex buffer in one go
 
@@ -2911,7 +3062,7 @@ private:
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline.pipeline);
 
         VkViewport viewport{};
         viewport.x = 0;
@@ -3009,8 +3160,8 @@ private:
             vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
         }
 
-        vkDestroyPipeline(device, graphicsPipeline, nullptr);
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        colorPipeline.destroy(device);
+        //texturePipeline.destroy(device);
 
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
