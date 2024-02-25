@@ -30,15 +30,16 @@
 #include "glm/gtx/string_cast.hpp"
 #include "glm/gtc/matrix_inverse.hpp"
 
-#include <vulkan/vk_enum_string_helper.h>
-
+#include "types.h"
+#include "utils.h"
 #include "jsonloader.h"
 #include "eventloader.h"
 #include "rg_WindowManager.h"
 #include "OrbitCamera.h"
 
-#include "VertexColor.h"
-#include "VertexTexture.h"
+#include "attribute.h"
+#include "vertexcolor.h"
+#include "vertextexture.h"
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -102,68 +103,6 @@ void DestroyDebugUtilsMessengerEXT(
     }
 }
 
-// probably create a base vertex class and children, or a Vertex abstract class
-// the one thing all Vertex classes must have are positions
-struct Vertex {
-    glm::vec3 pos;
-    glm::vec3 normal;
-    glm::vec4 color;
-
-    static std::vector<VkVertexInputBindingDescription> getBindingDescriptions() {
-        std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
-
-        bindingDescriptions[0].binding = 0;
-        bindingDescriptions[0].stride = sizeof(Vertex);
-        bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-        return bindingDescriptions;
-    }
-
-    static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() {
-        std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
-
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(Vertex, normal);
-
-        attributeDescriptions[2].binding = 0;
-        attributeDescriptions[2].location = 2;
-        attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-        //attributeDescriptions[2].format = VK_FORMAT_R8G8B8A8_UNORM;
-        attributeDescriptions[2].offset = offsetof(Vertex, color);
-
-        return attributeDescriptions;
-    }
-};
-
-struct UniformBufferObject {
-    alignas(16) glm::mat4 model;
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 proj;
-};
-
-struct Attribute {
-    std::string name;
-    std::string src;
-    uint32_t offset;
-    uint32_t stride;
-    std::string format;
-
-    void print() {
-        std::cout << "Attribute Name: " << name << std::endl;
-        std::cout << "    Src: " << src << std::endl;
-        std::cout << "    Offset: " << offset << std::endl;
-        std::cout << "    Stride: " << stride << std::endl;
-        std::cout << "    Format: " << format << std::endl;
-    }
-};
-
 struct Indices {
     std::string src;
     uint32_t offset;
@@ -202,6 +141,63 @@ struct Node {
     }
 };
 
+struct Texture {
+    std::string src;
+    enum class Type {
+        Tex2D,
+        TexCube
+    };
+    enum class Format {
+        linear,
+        rgbe
+    };
+    Type type;
+    Format format;
+};
+
+template <typename T>
+struct MaterialProp {
+    enum class Type {
+        VALUE,
+        SRC
+    };
+    std::variant<
+        T,
+        std::string
+    > value;
+    Type type;
+};
+
+struct PbrProps {
+    MaterialProp<glm::vec3> albedo;
+    MaterialProp<float> roughness;
+    MaterialProp<float> metalness;
+};
+
+struct LambertianProps {
+    MaterialProp<glm::vec3> baseColor;
+};
+
+struct Material {
+    std::string name;
+    std::optional<Texture> normalMap;
+    std::optional<Texture> displacementMap;
+
+    enum class Type {
+        PBR,
+        LAMBERTIAN,
+        MIRROR,
+        ENVIRONMENT,
+        SIMPLE
+    };
+    std::variant<
+        PbrProps,
+        LambertianProps,
+        std::monostate
+    > value;
+    Type type;
+};
+
 struct Mesh {
     std::string name;
     std::string topology;
@@ -212,7 +208,14 @@ struct Mesh {
     std::vector<Attribute> attributes;
     std::optional<uint32_t> material;
 
-    std::vector<Vertex> vertices;
+    std::vector<VertexColor> vertices;
+
+    std::variant<
+        std::vector<VertexColor>,
+        std::vector<VertexTexture>
+    > verticesNew;
+    Material::Type vertexType;
+
     std::vector<uint16_t> indices;
 
     VkBuffer vertexBuffer;
@@ -303,63 +306,6 @@ struct Animation {
     uint16_t curFrameIndex;
 };
 
-struct Texture {
-    std::string src;
-    enum class Type {
-        Tex2D,
-        TexCube
-    };
-    enum class Format {
-        linear,
-        rgbe
-    };
-    Type type;
-    Format format;
-};
-
-template <typename T>
-struct MaterialProp {
-    enum class Type {
-        VALUE,
-        SRC
-    };
-    std::variant<
-        T,
-        std::string
-    > value;
-    Type type;
-};
-
-struct PbrProps {
-    MaterialProp<glm::vec3> albedo;
-    MaterialProp<float> roughness;
-    MaterialProp<float> metalness;
-};
-
-struct LambertianProps {
-    MaterialProp<glm::vec3> baseColor;
-};
-
-struct Material {
-    std::string name;
-    std::optional<Texture> normalMap;
-    std::optional<Texture> displacementMap;
-
-    enum class Type {
-        PBR,
-        LAMBERTIAN,
-        MIRROR,
-        ENVIRONMENT,
-        SIMPLE
-    };
-    std::variant<
-        PbrProps,
-        LambertianProps,
-        std::monostate
-    > value;
-    Type type;
-};
-
 struct Environment {
     std::string name;
     Texture radiance;
@@ -436,13 +382,21 @@ struct CLIArguments {
     std::string culling = "none";
 };
 
+template <typename V>
 struct GraphicsPipeline {
     VkPipelineLayout pipelineLayout;
     VkPipeline pipeline;
 
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkDescriptorPool descriptorPool;
+    std::vector<VkDescriptorSet> descriptorSets;
+
     void destroy(VkDevice device) {
         vkDestroyPipeline(device, pipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+
+        vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
     }
 };
 
@@ -513,10 +467,9 @@ private:
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
     VkRenderPass renderPass;
-    VkDescriptorSetLayout descriptorSetLayout;
 
-    GraphicsPipeline colorPipeline;
-    GraphicsPipeline texturePipeline;
+    GraphicsPipeline<VertexColor> colorPipeline;
+    GraphicsPipeline<VertexTexture> texturePipeline;
 
     VkCommandPool commandPool;
 
@@ -533,9 +486,6 @@ private:
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
-
-    VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSet> descriptorSets;
 
     std::vector<VkCommandBuffer> commandBuffers;
 
@@ -579,12 +529,6 @@ private:
         file.close();
 
         return buffer;
-    }
-
-    static inline void vkCheckResult(VkResult result, std::string errorMsg) {
-        if (result != VK_SUCCESS) {
-            throw std::runtime_error(errorMsg + std::string(string_VkResult(result)) + " [" + std::to_string(result) + "]");
-        }
     }
 
     void processCLIArgs(int argc, char* argv[]) {
@@ -733,18 +677,30 @@ private:
         createDepthResources();
         createFramebuffers();
 
-        createDescriptorSetLayout();
-
         createUniformBuffers();
 
-        createGraphicsPipeline(colorPipeline, "color");
-        //createGraphicsPipeline(texturePipeline, "texture");
-        //createTextureImage();
-        //createTextureImageView();
-        //createTextureSampler();
+        createGraphicsPipeline<VertexColor>(colorPipeline, "color");
+        createGraphicsPipeline<VertexTexture>(texturePipeline, "texture");
 
-        createDescriptorPool();
-        createDescriptorSets();
+        createTextureImage("textures/texture.jpg");
+        createTextureImageView();
+        createTextureSampler();
+
+        VertexColor::createDescriptorSets(device,
+                                          colorPipeline.descriptorSetLayout,
+                                          colorPipeline.descriptorPool,
+                                          colorPipeline.descriptorSets,
+                                          static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                          uniformBuffers);
+
+        VertexTexture::createDescriptorSets(device,
+                                            texturePipeline.descriptorSetLayout,
+                                            texturePipeline.descriptorPool,
+                                            texturePipeline.descriptorSets,
+                                            static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                            uniformBuffers,
+                                            textureImageView,
+                                            textureSampler);
 
         createCommandBuffers();
 
@@ -1314,36 +1270,10 @@ private:
             "failed to create render pass");
     }
 
-    void createDescriptorSetLayout() {
-        VkDescriptorSetLayoutBinding uboLayoutBinding{};
-        uboLayoutBinding.binding = 0;
-        uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        uboLayoutBinding.descriptorCount = 1;
-        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        uboLayoutBinding.pImmutableSamplers = nullptr;
+    template <typename V>
+    void createGraphicsPipeline(GraphicsPipeline<V>& pipeline, std::string shader) {
+        V::createDescriptorSetLayout(device, pipeline.descriptorSetLayout);
 
-        /*
-        VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-        samplerLayoutBinding.binding = 1;
-        samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerLayoutBinding.descriptorCount = 1;
-        samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        samplerLayoutBinding.pImmutableSamplers = nullptr;
-        */
-
-        //std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
-        std::array<VkDescriptorSetLayoutBinding, 1> bindings = { uboLayoutBinding };
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());;
-        layoutInfo.pBindings = bindings.data();
-
-        vkCheckResult(
-            vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout),
-            "failed to create descriptor set layou");
-    }
-
-    void createGraphicsPipeline(GraphicsPipeline& pipeline, std::string shader) {
         std::vector<char> vertShaderCode = readFile("shaders/" + shader + "-vert.spv");
         std::vector<char> fragShaderCode = readFile("shaders/" + shader + "-frag.spv");
 
@@ -1364,8 +1294,8 @@ private:
 
         VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
-        std::vector<VkVertexInputBindingDescription> bindingDescriptions = Vertex::getBindingDescriptions();
-        std::vector<VkVertexInputAttributeDescription> attributeDescriptions = Vertex::getAttributeDescriptions();
+        std::vector<VkVertexInputBindingDescription> bindingDescriptions = V::getBindingDescriptions();
+        std::vector<VkVertexInputAttributeDescription> attributeDescriptions = V::getAttributeDescriptions();
 
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1457,7 +1387,7 @@ private:
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+        pipelineLayoutInfo.pSetLayouts = &pipeline.descriptorSetLayout;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
         pipelineLayoutInfo.pPushConstantRanges = &range;
 
@@ -1489,6 +1419,8 @@ private:
 
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
+
+        V::createDescriptorPool(device, pipeline.descriptorPool, static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
     }
 
     VkShaderModule createShaderModule(const std::vector<char>& code) {
@@ -1579,14 +1511,13 @@ private:
         throw std::runtime_error("failed to find supported format!");
     }
 
-    /*
-    void createTextureImage() {
+    void createTextureImage(std::string filePath) {
         int texWidth, texHeight, texChannels;
-        stbi_uc* pixels = stbi_load("textures/texture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        stbi_uc* pixels = stbi_load(filePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         VkDeviceSize imageSize = texWidth * texHeight * 4;
 
         if (!pixels) {
-            throw std::runtime_error("failed to load texture image!");
+            throw std::runtime_error("failed to load texture image: " + filePath+ "!");
         }
 
         VkBuffer stagingBuffer;
@@ -1624,7 +1555,6 @@ private:
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
-    */
 
     void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
         VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
@@ -1837,6 +1767,15 @@ private:
 
         for (Mesh& mesh : scene.meshes) {
             loadVertices(mesh);
+
+            /*
+            if (mesh.vertexType == Material::Type::SIMPLE) {
+                loadVertices<VertexColor>(mesh);
+            } else {
+                loadVertices<VertexTexture>(mesh);
+            }
+            */
+
             createVertexBuffer(mesh);
             createIndexBuffer(mesh);
             mesh.aabb = getAABB(mesh);
@@ -2146,7 +2085,7 @@ private:
             glm::vec3 pos(transform * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
             if (args.culling == "none" || frustumIntersectsAABB(frustum, center, halfExtent)) {
-                renderMesh(commandBuffer, mesh, transform);
+                renderMesh(colorPipeline, commandBuffer, mesh, transform);
             }
         }
 
@@ -2157,7 +2096,8 @@ private:
         }
     }
 
-    void renderMesh(VkCommandBuffer& commandBuffer, const Mesh& mesh, glm::mat4 transform) {
+    template <typename V>
+    void renderMesh(GraphicsPipeline<V>& pipeline, VkCommandBuffer& commandBuffer, const Mesh& mesh, glm::mat4 transform) {
         vkCmdPushConstants(commandBuffer, colorPipeline.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
 
         VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
@@ -2166,7 +2106,7 @@ private:
 
         vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline.pipelineLayout,
-            0, 1, &descriptorSets[currentFrame], 0, nullptr);
+            0, 1, &pipeline.descriptorSets[currentFrame], 0, nullptr);
 
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
     }
@@ -2203,10 +2143,62 @@ private:
         );
     }
 
+    template <typename T>
     void loadVertices(Mesh& mesh) {
         // assume that all vertices for a model are in the same file
 
-        mesh.vertices = {};
+        mesh.verticesNew = std::vector<T>();
+        mesh.indices = {};
+
+        std::ifstream vertexData;
+        vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
+
+        if (vertexData.fail()) {
+            throw std::runtime_error("Failed to load vertices from " + mesh.src + "!");
+        }
+
+        // TODO: Maybe I should read directly into a byte array that I can then copy to the vertex buffer in one go
+
+        std::vector<T>& vertices = std::get<std::vector<T>>(mesh.verticesNew);
+
+        for (uint32_t i = 0; i < mesh.vertexCount; i++) {
+            vertices.push_back(T::readFromFile(vertexData, mesh.attributes));
+            mesh.indices.push_back(static_cast<uint16_t>(i));
+
+            /*
+            for (Attribute attr : mesh.attributes) {
+                std::size_t size = getFormatSize(attr.format);
+
+                if (attr.name == "POSITION") {
+                    vertexData.read(reinterpret_cast<char*>(&mesh.vertices.back().pos), size);
+                }
+                else if (attr.name == "NORMAL") {
+                    vertexData.read(reinterpret_cast<char*>(&mesh.vertices.back().normal), size);
+                }
+                else if (attr.name == "COLOR") {
+                    uint32_t color;
+
+                    vertexData.read(reinterpret_cast<char*>(&color), size);
+
+                    // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
+                    mesh.vertices.back().color.r = static_cast<float>((color >> 0) & 0xff) / 255.f;
+                    mesh.vertices.back().color.g = static_cast<float>((color >> 8) & 0xff) / 255.f;
+                    mesh.vertices.back().color.b = static_cast<float>((color >> 16) & 0xff) / 255.f;
+                }
+                else {
+                    std::cout << "Unexpected attribute name: " << attr.name << std::endl;
+                }
+            }
+            */
+        }
+
+        vertexData.close();
+    }
+
+    void loadVertices(Mesh& mesh) {
+        // assume that all vertices for a model are in the same file
+
+        mesh.vertices = std::vector<VertexColor>();
         mesh.indices = {};
 
         std::ifstream vertexData;
@@ -2250,7 +2242,7 @@ private:
         vertexData.close();
     }
 
-    size_t getFormatSize(std::string format) {
+    static size_t getFormatSize(std::string format) {
         if (format == "R32G32B32_SFLOAT") {
             return 12;
         }
@@ -2265,6 +2257,19 @@ private:
 
     void createVertexBuffer(Mesh& mesh) {
         VkDeviceSize bufferSize = sizeof(mesh.vertices[0]) * mesh.vertices.size();
+        /*
+        VkDeviceSize bufferSize;
+
+        if (mesh.vertexType == Material::Type::SIMPLE) {
+            const std::vector<VertexColor>& vertices = std::get<std::vector<VertexColor>>(mesh.verticesNew);
+
+            bufferSize = sizeof(vertices[0]) * vertices.size();
+        } else {
+            const std::vector<VertexTexture>& vertices = std::get<std::vector<VertexTexture>>(mesh.verticesNew);
+
+            bufferSize = sizeof(vertices[0]) * vertices.size();
+        }
+        */
 
         VkBuffer stagingBuffer;
         VkDeviceMemory stagingBufferMemory;
@@ -2276,6 +2281,19 @@ private:
         void* data;
         vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
         memcpy(data, mesh.vertices.data(), (size_t)bufferSize);
+
+        /*
+        if (mesh.vertexType == Material::Type::SIMPLE) {
+            const std::vector<VertexColor>& vertices = std::get<std::vector<VertexColor>>(mesh.verticesNew);
+
+            memcpy(data, vertices.data(), (size_t)bufferSize);
+        } else {
+            const std::vector<VertexTexture>& vertices = std::get<std::vector<VertexTexture>>(mesh.verticesNew);
+
+            memcpy(data, vertices.data(), (size_t)bufferSize);
+        }
+        */
+
         vkUnmapMemory(device, stagingBufferMemory);
 
         createBuffer(bufferSize,
@@ -2316,16 +2334,13 @@ private:
     }
 
     std::array<glm::vec3, 2> getAABB(const Mesh& mesh) {
-        if (mesh.name == "Ground") {
-            std::cout << std::endl << "GETTING AABB FOR " << mesh.name << std::endl;
-        }
-
         std::array<glm::vec3, 2> aabb;
 
         aabb[0] = glm::vec3(std::numeric_limits<float>::max());
         aabb[1] = glm::vec3(std::numeric_limits<float>::min());
 
-        for (const Vertex& vert : mesh.vertices) {
+        /*
+        for (const VertexColor& vert : mesh.vertices) {
             // min vertex
             aabb[0].x = std::min(aabb[0].x, vert.pos.x);
             aabb[0].y = std::min(aabb[0].y, vert.pos.y);
@@ -2342,6 +2357,7 @@ private:
             std::cout << "AABB max: " << glm::to_string(aabb[1]) << std::endl;
             std::cout << std::endl;
         }
+        */
 
         return aabb;
     }
@@ -2444,79 +2460,6 @@ private:
                 uniformBuffers[i], uniformBuffersMemory[i]);
 
             vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
-        }
-    }
-
-    void createDescriptorPool() {
-        std::array<VkDescriptorPoolSize, 1> poolSizes{};
-        poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        //poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        //poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-
-        VkDescriptorPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-        poolInfo.pPoolSizes = poolSizes.data();
-        poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-
-        vkCheckResult(
-            vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool),
-            "failed to create descriptor pool");
-    }
-
-    void createDescriptorSets() {
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = descriptorPool;
-        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        allocInfo.pSetLayouts = layouts.data();
-
-        descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        vkCheckResult(
-            vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()),
-            "failed to allocate descriptor sets");
-
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = uniformBuffers[i];
-            bufferInfo.offset = 0;
-            bufferInfo.range = sizeof(UniformBufferObject);
-
-            /*
-            VkDescriptorImageInfo imageInfo{};
-            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = textureImageView;
-            imageInfo.sampler = textureSampler;
-            */
-
-            std::array<VkWriteDescriptorSet, 1> descriptorWrites{};
-
-            descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrites[0].dstSet = descriptorSets[i];
-            descriptorWrites[0].dstBinding = 0;
-            descriptorWrites[0].dstArrayElement = 0;
-            descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptorWrites[0].descriptorCount = 1;
-            descriptorWrites[0].pBufferInfo = &bufferInfo;
-            descriptorWrites[0].pImageInfo = nullptr;
-            descriptorWrites[0].pTexelBufferView = nullptr;
-
-            /*
-            descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrites[1].dstSet = descriptorSets[i];
-            descriptorWrites[1].dstBinding = 1;
-            descriptorWrites[1].dstArrayElement = 0;
-            descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrites[1].descriptorCount = 1;
-            descriptorWrites[1].pBufferInfo = nullptr;
-            descriptorWrites[1].pImageInfo = &imageInfo;
-            descriptorWrites[1].pTexelBufferView = nullptr;
-            */
-
-            vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()),
-                descriptorWrites.data(), 0, nullptr);
         }
     }
 
@@ -3149,11 +3092,11 @@ private:
             cleanupSwapChain();
         }
 
-        //vkDestroySampler(device, textureSampler, nullptr);
-        //vkDestroyImageView(device, textureImageView, nullptr);
+        vkDestroySampler(device, textureSampler, nullptr);
+        vkDestroyImageView(device, textureImageView, nullptr);
 
-        //vkDestroyImage(device, textureImage, nullptr);
-        //vkFreeMemory(device, textureImageMemory, nullptr);
+        vkDestroyImage(device, textureImage, nullptr);
+        vkFreeMemory(device, textureImageMemory, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);
@@ -3161,17 +3104,13 @@ private:
         }
 
         colorPipeline.destroy(device);
-        //texturePipeline.destroy(device);
-
-        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+        texturePipeline.destroy(device);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
             vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
             vkDestroyFence(device, inFlightFences[i], nullptr);
         }
-
-        vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
         vkDestroyRenderPass(device, renderPass, nullptr);
 
