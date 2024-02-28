@@ -146,10 +146,10 @@ struct VertexColor {
                 vertexData.read(reinterpret_cast<char*>(&color), size);
 
                 // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
-                v.color.r = static_cast<float>((color >> 24) & 0xff) / 255.f;
-                v.color.g = static_cast<float>((color >> 16) & 0xff) / 255.f;
-                v.color.b = static_cast<float>((color >> 8) & 0xff) / 255.f;
-                v.color.a = static_cast<float>((color >> 0) & 0xff) / 255.f;
+                v.color.r = static_cast<float>((color >> 0) & 0xff) / 255.f;
+                v.color.g = static_cast<float>((color >> 8) & 0xff) / 255.f;
+                v.color.b = static_cast<float>((color >> 16) & 0xff) / 255.f;
+                v.color.a = static_cast<float>((color >> 24) & 0xff) / 255.f;
             }
             else {
                 std::cout << "Unexpected attribute name: " << attr.name << std::endl;
@@ -162,11 +162,9 @@ struct VertexColor {
     static size_t getFormatSize(std::string format) {
         if (format == "R32G32B32_SFLOAT") {
             return 12;
-        }
-        else if (format == "R8G8B8A8_UNORM") {
+        } else if (format == "R8G8B8A8_UNORM") {
             return 4;
-        }
-        else {
+        } else {
             std::cout << "Unexpected input format: " << format << std::endl;
             return 0;
         }

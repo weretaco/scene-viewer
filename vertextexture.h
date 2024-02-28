@@ -169,17 +169,46 @@ struct VertexTexture {
     static VertexTexture readFromFile(std::ifstream& vertexData, const std::vector<Attribute>& attributes) {
         VertexTexture v;
 
+        for (Attribute attr : attributes) {
+            std::size_t size = getFormatSize(attr.format);
+
+            if (attr.name == "POSITION") {
+                vertexData.read(reinterpret_cast<char*>(&v.pos), size);
+            } else if (attr.name == "NORMAL") {
+                vertexData.read(reinterpret_cast<char*>(&v.normal), size);
+            } else if (attr.name == "TANGENT") {
+                vertexData.read(reinterpret_cast<char*>(&v.tangent), size);
+            } else if (attr.name == "TEXCOORD") {
+                vertexData.read(reinterpret_cast<char*>(&v.texCoord), size);
+            } else if (attr.name == "COLOR") {
+                uint32_t color;
+
+                vertexData.read(reinterpret_cast<char*>(&color), size);
+
+                // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
+                v.color.r = static_cast<float>((color >> 0) & 0xff) / 255.f;
+                v.color.g = static_cast<float>((color >> 8) & 0xff) / 255.f;
+                v.color.b = static_cast<float>((color >> 16) & 0xff) / 255.f;
+                v.color.a = static_cast<float>((color >> 24) & 0xff) / 255.f;
+            }
+            else {
+                std::cout << "Unexpected attribute name: " << attr.name << std::endl;
+            }
+        }
+
         return v;
     }
 
     static size_t getFormatSize(std::string format) {
-        if (format == "R32G32B32_SFLOAT") {
+        if (format == "R32G32_SFLOAT") {
+            return 8;
+        } else if (format == "R32G32B32_SFLOAT") {
             return 12;
-        }
-        else if (format == "R8G8B8A8_UNORM") {
+        } else if (format == "R32G32B32A32_SFLOAT") {
+            return 16;
+        } else if (format == "R8G8B8A8_UNORM") {
             return 4;
-        }
-        else {
+        } else {
             std::cout << "Unexpected input format: " << format << std::endl;
             return 0;
         }

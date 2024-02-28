@@ -30,16 +30,19 @@
 #include "glm/gtx/string_cast.hpp"
 #include "glm/gtc/matrix_inverse.hpp"
 
+#include "rg_WindowManager.h"
+
 #include "types.h"
 #include "utils.h"
 #include "jsonloader.h"
 #include "eventloader.h"
-#include "rg_WindowManager.h"
-#include "OrbitCamera.h"
-
 #include "attribute.h"
 #include "vertexcolor.h"
 #include "vertextexture.h"
+#include "graphics-pipeline.h"
+
+#include "OrbitCamera.h"
+
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -117,6 +120,7 @@ struct Node {
     std::vector<uint16_t> children;
     std::optional<uint16_t> camera;
     std::optional<uint16_t> mesh;
+    std::optional<uint16_t> environement;
 
     void print() {
         std::cout << "Name: " << name << std::endl;
@@ -148,8 +152,8 @@ struct Texture {
         TexCube
     };
     enum class Format {
-        linear,
-        rgbe
+        Linear,
+        RGBE
     };
     Type type;
     Format format;
@@ -206,14 +210,12 @@ struct Mesh {
     uint32_t stride;
     Indices indicesData;
     std::vector<Attribute> attributes;
-    std::optional<uint32_t> material;
-
-    std::vector<VertexColor> vertices;
+    std::optional<uint16_t> material;
 
     std::variant<
         std::vector<VertexColor>,
         std::vector<VertexTexture>
-    > verticesNew;
+    > vertices;
     Material::Type vertexType;
 
     std::vector<uint16_t> indices;
@@ -318,6 +320,7 @@ struct Scene {
     std::vector<Driver> drivers;
     std::vector<Animation> anims;
     std::vector<Material> materials;
+    std::vector<Environment> environments;
     std::vector<uint16_t> roots;
 
     // maps indices of JSON nodes to the index of the corresponding struct in one of the arrays of the Scene object
@@ -380,24 +383,6 @@ struct CLIArguments {
     std::string eventsFile = "";
     bool headless = false;
     std::string culling = "none";
-};
-
-template <typename V>
-struct GraphicsPipeline {
-    VkPipelineLayout pipelineLayout;
-    VkPipeline pipeline;
-
-    VkDescriptorSetLayout descriptorSetLayout;
-    VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSet> descriptorSets;
-
-    void destroy(VkDevice device) {
-        vkDestroyPipeline(device, pipeline, nullptr);
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-
-        vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-    }
 };
 
 // forward declarations, implementations at the end of this file
@@ -480,6 +465,10 @@ private:
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
     VkImageView textureImageView;
+
+    VkImage cubemapImage;
+    VkDeviceMemory cubemapImageMemory;
+    VkImageView cubemapImageView;
 
     VkSampler textureSampler;
 
@@ -682,8 +671,20 @@ private:
         createGraphicsPipeline<VertexColor>(colorPipeline, "color");
         createGraphicsPipeline<VertexTexture>(texturePipeline, "texture");
 
-        createTextureImage("textures/texture.jpg");
-        createTextureImageView();
+        loadTextureImage("textures/texture.jpg", textureImage, textureImageMemory);
+        textureImageView = createImageView(textureImage,
+                                VK_IMAGE_VIEW_TYPE_2D,
+                                VK_FORMAT_R8G8B8A8_SRGB,
+                                VK_IMAGE_ASPECT_COLOR_BIT,
+                                1);
+
+        loadCubemapImage("scenes/env-cube.png", cubemapImage, cubemapImageMemory);
+        cubemapImageView = createImageView(cubemapImage,
+                                VK_IMAGE_VIEW_TYPE_CUBE,
+                                VK_FORMAT_R8G8B8A8_SRGB,
+                                VK_IMAGE_ASPECT_COLOR_BIT,
+                                6);
+
         createTextureSampler();
 
         VertexColor::createDescriptorSets(device,
@@ -699,7 +700,7 @@ private:
                                             texturePipeline.descriptorSets,
                                             static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
                                             uniformBuffers,
-                                            textureImageView,
+                                            cubemapImageView,
                                             textureSampler);
 
         createCommandBuffers();
@@ -1077,8 +1078,11 @@ private:
 
         for (size_t i = 0; i < swapChainImages.size(); i++) {
             createImage(swapChainExtent.width, swapChainExtent.height, swapChainImageFormat,
-                VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                swapChainImages[i], swapChainImagesMemory[i]);
+                VK_IMAGE_TILING_OPTIMAL,
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                0,
+                1, swapChainImages[i], swapChainImagesMemory[i]);
         }
     }
 
@@ -1181,7 +1185,11 @@ private:
         swapChainImageViews.resize(swapChainImages.size());
 
         for (size_t i = 0; i < swapChainImages.size(); i++) {
-            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+            swapChainImageViews[i] = createImageView(swapChainImages[i], 
+                                        VK_IMAGE_VIEW_TYPE_2D,
+                                        swapChainImageFormat,
+                                        VK_IMAGE_ASPECT_COLOR_BIT,
+                                        1);
         }
     }
 
@@ -1478,9 +1486,16 @@ private:
         VkFormat depthFormat = findDepthFormat();
 
         createImage(swapChainExtent.width, swapChainExtent.height, depthFormat,
-            VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            depthImage, depthImageMemory);
-        depthImageView = createImageView(depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+            VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            0,
+            1, depthImage, depthImageMemory);
+        depthImageView = createImageView(depthImage, 
+                            VK_IMAGE_VIEW_TYPE_2D,
+                            depthFormat,
+                            VK_IMAGE_ASPECT_DEPTH_BIT,
+                            1);
     }
 
     bool hasStencilComponent(VkFormat format) {
@@ -1511,7 +1526,7 @@ private:
         throw std::runtime_error("failed to find supported format!");
     }
 
-    void createTextureImage(std::string filePath) {
+    void loadTextureImage(std::string filePath, VkImage& textureImage, VkDeviceMemory& textureMemory) {
         int texWidth, texHeight, texChannels;
         stbi_uc* pixels = stbi_load(filePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         VkDeviceSize imageSize = texWidth * texHeight * 4;
@@ -1539,25 +1554,82 @@ private:
             VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            textureImage, textureImageMemory);
+            0,
+            1, textureImage, textureMemory);
 
         transitionImageLayout(textureImage,
             VK_FORMAT_R8G8B8A8_SRGB,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1);
 
         copyBufferToImage(stagingBuffer, textureImage,
-            static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+            static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), 1);
 
         transitionImageLayout(textureImage,
             VK_FORMAT_R8G8B8A8_SRGB,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            1);
+
+        vkDestroyBuffer(device, stagingBuffer, nullptr);
+        vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+
+
+    void loadCubemapImage(std::string filePath, VkImage& textureImage, VkDeviceMemory& textureMemory) {
+        int texWidth, texHeight, texChannels;
+        stbi_uc* pixels = stbi_load(filePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+        if (!pixels) {
+            throw std::runtime_error("failed to load texture image: " + filePath+ "!");
+        }
+
+        VkDeviceSize imageSize = texWidth * texHeight * 4;
+        uint16_t numLayers = 6;
+        VkDeviceSize layerSize = imageSize / numLayers;
+        texHeight = texHeight / numLayers;
+
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+
+        createBuffer(imageSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory);
+
+        void* data;
+        vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+        memcpy(data, pixels, static_cast<size_t>(imageSize));
+        vkUnmapMemory(device, stagingBufferMemory);
+
+        stbi_image_free(pixels);
+
+        createImage(texWidth, texHeight,
+            VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+            6, textureImage, textureMemory);
+
+        transitionImageLayout(textureImage,
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            6);
+
+        copyBufferToImage(stagingBuffer, textureImage,
+            static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), numLayers);
+
+        transitionImageLayout(textureImage,
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            numLayers);
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
     void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-        VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
+        VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImageCreateFlags flags, uint32_t arrayLayers,
+        VkImage& image, VkDeviceMemory& imageMemory) {
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -1565,14 +1637,14 @@ private:
         imageInfo.extent.height = height;
         imageInfo.extent.depth = 1;
         imageInfo.mipLevels = 1;
-        imageInfo.arrayLayers = 1;
+        imageInfo.arrayLayers = arrayLayers;
         imageInfo.format = format;
         imageInfo.tiling = tiling;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         imageInfo.usage = usage;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-        imageInfo.flags = 0;
+        imageInfo.flags = flags;
 
         vkCheckResult(
             vkCreateImage(device, &imageInfo, nullptr, &image),
@@ -1593,7 +1665,7 @@ private:
         vkBindImageMemory(device, image, imageMemory, 0);
     }
 
-    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t layerCount) {
         VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
         VkImageMemoryBarrier barrier{};
@@ -1607,7 +1679,7 @@ private:
         barrier.subresourceRange.baseMipLevel = 0;
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
+        barrier.subresourceRange.layerCount = layerCount;
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = 0;
 
@@ -1643,7 +1715,7 @@ private:
         endSingleTimeCommands(commandBuffer);
     }
 
-    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, uint32_t layerCount) {
         VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
         VkBufferImageCopy region{};
@@ -1654,7 +1726,7 @@ private:
         region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         region.imageSubresource.mipLevel = 0;
         region.imageSubresource.baseArrayLayer = 0;
-        region.imageSubresource.layerCount = 1;
+        region.imageSubresource.layerCount = layerCount;
 
         region.imageOffset = { 0, 0, 0 };
         region.imageExtent = { width, height, 1 };
@@ -1667,15 +1739,12 @@ private:
         endSingleTimeCommands(commandBuffer);
     }
 
-    void createTextureImageView() {
-        textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
-    }
-
-    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) {
+    VkImageView createImageView(VkImage image, VkImageViewType viewType, VkFormat format, VkImageAspectFlags aspectFlags,
+        uint32_t layerCount) {
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = image;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.viewType = viewType;
         viewInfo.format = format;
 
         viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -1687,7 +1756,7 @@ private:
         viewInfo.subresourceRange.baseMipLevel = 0;
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
+        viewInfo.subresourceRange.layerCount = layerCount;
 
         VkImageView imageView;
         vkCheckResult(
@@ -1766,19 +1835,23 @@ private:
         }
 
         for (Mesh& mesh : scene.meshes) {
-            loadVertices(mesh);
-
-            /*
             if (mesh.vertexType == Material::Type::SIMPLE) {
+                std::cout << "Loading data for SIMPLE mesh" << std::endl;
                 loadVertices<VertexColor>(mesh);
-            } else {
-                loadVertices<VertexTexture>(mesh);
-            }
-            */
+                createVertexBuffer<VertexColor>(mesh);
 
-            createVertexBuffer(mesh);
+                mesh.aabb = getAABB<VertexColor>(mesh);
+            } else {
+                std::cout << "Loading data for mesh of type " << int(mesh.vertexType) << std::endl;
+                loadVertices<VertexTexture>(mesh);
+                std::cout << "Loaded vertices" << std::endl;
+                createVertexBuffer<VertexTexture>(mesh);
+                std::cout << "Created buffer" << std::endl;
+
+                mesh.aabb = getAABB<VertexTexture>(mesh);
+            }
+
             createIndexBuffer(mesh);
-            mesh.aabb = getAABB(mesh);
         }
     }
 
@@ -1797,11 +1870,13 @@ private:
 
                 scene.typeIndices.push_back(std::numeric_limits<uint16_t>::max());
             } else if (node.type == JsonLoader::JsonNode::Type::OBJECT) {
+                std::cout << "OBJECT NODE..." << std::endl;
                 std::map<std::string, JsonLoader::JsonNode*>& obj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(node.value);
 
                 std::string sceneType = std::get<std::string>(obj["type"]->value);
 
                 if (sceneType == "SCENE") {
+                    std::cout << "SCENE NODE..." << std::endl;
                     scene.typeIndices.push_back(std::numeric_limits<uint16_t>::max());
 
                     std::vector<JsonLoader::JsonNode*>& roots = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["roots"]->value);
@@ -1810,6 +1885,7 @@ private:
                         scene.roots.push_back(static_cast<uint16_t>(std::get<float>(root->value)));
                     }
                 } else if (sceneType == "NODE") {
+                    std::cout << "NODE NODE..." << std::endl;
                     scene.typeIndices.push_back(scene.nodes.size());
                     scene.nodes.push_back({});
 
@@ -1849,6 +1925,7 @@ private:
                         scene.nodes.back().mesh = static_cast<uint16_t>(std::get<float>(obj["mesh"]->value));
                     }
                 } else if (sceneType == "MESH") {
+                    std::cout << "MESH NODE..." << std::endl;
                     scene.typeIndices.push_back(scene.meshes.size());
                     scene.meshes.push_back({});
 
@@ -1866,17 +1943,21 @@ private:
                         scene.meshes.back().indicesData = { "", 0, ""};
                     }
 
-                    if (obj.count("material") > 0) {
-                        scene.meshes.back().material = static_cast<uint32_t>(std::get<float>(obj["material"]->value));
-                    }
-
                     std::map<std::string, JsonLoader::JsonNode*>& attributes = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["attributes"]->value);
 
                     if (obj.count("material") > 0) {
+                        scene.meshes.back().material = static_cast<uint32_t>(std::get<float>(obj["material"]->value));
                         scene.meshes.back().attributes.resize(5);
+
+                        // customize later since it can be any of them besides simple
+                        scene.meshes.back().vertexType = Material::Type::ENVIRONMENT;
                     } else {
                         // this mesh uses the simple material
+
+                        scene.meshes.back().material = std::numeric_limits<uint32_t>::max();
                         scene.meshes.back().attributes.resize(3);
+
+                        scene.meshes.back().vertexType = Material::Type::SIMPLE;
                     }
 
                     for (const std::pair<const std::string, JsonLoader::JsonNode*>& attr : attributes) {
@@ -1923,6 +2004,7 @@ private:
                     scene.meshes.back().src = scene.meshes.back().attributes[0].src;
                     scene.meshes.back().stride = scene.meshes.back().attributes[0].stride;
                 } else if (sceneType == "CAMERA") {
+                    std::cout << "CAMERA NODE..." << std::endl;
                     scene.typeIndices.push_back(scene.cameras.size());
                     scene.cameras.push_back({});
 
@@ -1935,6 +2017,7 @@ private:
                     scene.cameras.back().near = std::get<float>(perspective["near"]->value);
                     scene.cameras.back().far = std::get<float>(perspective["far"]->value);
                 } else if (sceneType == "DRIVER") {
+                    std::cout << "DRIVER NODE..." << std::endl;
                     scene.typeIndices.push_back(scene.drivers.size());
                     scene.drivers.push_back({});
 
@@ -1965,6 +2048,7 @@ private:
                     scene.anims.push_back({});
                     scene.anims.back().curFrameIndex = std::numeric_limits<uint16_t>::max();
                 } else if (sceneType == "MATERIAL") {
+                    std::cout << "MATERIAL NODE..." << std::endl;
                     scene.typeIndices.push_back(scene.materials.size());
                     scene.materials.push_back({});
 
@@ -1976,13 +2060,14 @@ private:
                         scene.materials.back().normalMap = {
                             src: std::get<std::string>(jsonObj["src"]->value),
                             type: Texture::Type::Tex2D,
-                            format: Texture::Format::linear
+                            format: Texture::Format::Linear
                         };
                     } else {
+                        // should represent a constant 0,0,1 normal map
                         scene.materials.back().normalMap = {
                             src: "",
                             type: Texture::Type::Tex2D,
-                            format: Texture::Format::linear
+                            format: Texture::Format::Linear
                         };
                     }
 
@@ -1992,17 +2077,36 @@ private:
                         scene.materials.back().displacementMap = {
                             src: std::get<std::string>(jsonObj["src"]->value),
                             type: Texture::Type::Tex2D,
-                            format: Texture::Format::linear
+                            format: Texture::Format::Linear
                         };
                     } else {
+                        // should represent a constant 0 displacement map
                         scene.materials.back().displacementMap = {
                             src: "",
                             type: Texture::Type::Tex2D,
-                            format: Texture::Format::linear
+                            format: Texture::Format::Linear
                         };
                     }
                 } else if (sceneType == "ENVIRONMENT") {
-                    Environment env; // not sure if I should one or more than one per scene
+                    std::cout << "ENVIRONMENT NODE..." << std::endl;
+                    scene.typeIndices.push_back(scene.environments.size());
+                    scene.environments.push_back({});
+
+                    std::map<std::string, JsonLoader::JsonNode*>& radianceJson = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["radiance"]->value);
+
+                    std::string texFormat = std::get<std::string>(radianceJson["format"]->value);
+                    std::string texType = std::get<std::string>(radianceJson["type"]->value);
+
+                    scene.environments.back() = {
+                        name: std::get<std::string>(obj["name"]->value),
+                        radiance: {
+                            src: std::get<std::string>(radianceJson["src"]->value),
+
+                            // assume only two types and formats
+                            type: texType == "2D" ? Texture::Type::Tex2D : Texture::Type::TexCube,
+                            format: texFormat == "linear" ? Texture::Format::Linear : Texture::Format::RGBE
+                        }
+                    };
                 }
             } else {
                 std::cout << "UNEXPECTED JSON TYPE!" << std::endl;
@@ -2027,10 +2131,18 @@ private:
             if (sceneNode.mesh.has_value()) {
                 sceneNode.mesh = scene.typeIndices[sceneNode.mesh.value()];
             }
+
+            if (sceneNode.environement.has_value()) {
+                sceneNode.environement = scene.typeIndices[sceneNode.environement.value()];
+            }
         }
 
         for (Driver& driver : scene.drivers) {
             driver.node = scene.typeIndices[driver.node];
+        }
+
+        for (Mesh& mesh : scene.meshes) {
+            mesh.material = scene.typeIndices[mesh.material.value()];
         }
 
         // Generate view mats for cameras
@@ -2085,7 +2197,11 @@ private:
             glm::vec3 pos(transform * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
             if (args.culling == "none" || frustumIntersectsAABB(frustum, center, halfExtent)) {
-                renderMesh(colorPipeline, commandBuffer, mesh, transform);
+                if (mesh.vertexType == Material::Type::SIMPLE) {
+                    renderMesh(colorPipeline, commandBuffer, mesh, transform);
+                } else {
+                    renderMesh(texturePipeline, commandBuffer, mesh, transform);
+                }
             }
         }
 
@@ -2098,14 +2214,14 @@ private:
 
     template <typename V>
     void renderMesh(GraphicsPipeline<V>& pipeline, VkCommandBuffer& commandBuffer, const Mesh& mesh, glm::mat4 transform) {
-        vkCmdPushConstants(commandBuffer, colorPipeline.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
+        vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
 
         VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
         vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline.pipelineLayout,
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipelineLayout,
             0, 1, &pipeline.descriptorSets[currentFrame], 0, nullptr);
 
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
@@ -2147,8 +2263,12 @@ private:
     void loadVertices(Mesh& mesh) {
         // assume that all vertices for a model are in the same file
 
-        mesh.verticesNew = std::vector<T>();
+        mesh.vertices = std::vector<T>();
         mesh.indices = {};
+
+        std::vector<T>& vertices = std::get<std::vector<T>>(mesh.vertices);
+
+        std::cout << "GOT THE VERTICES" << std::endl;
 
         std::ifstream vertexData;
         vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
@@ -2158,85 +2278,10 @@ private:
         }
 
         // TODO: Maybe I should read directly into a byte array that I can then copy to the vertex buffer in one go
-
-        std::vector<T>& vertices = std::get<std::vector<T>>(mesh.verticesNew);
 
         for (uint32_t i = 0; i < mesh.vertexCount; i++) {
             vertices.push_back(T::readFromFile(vertexData, mesh.attributes));
             mesh.indices.push_back(static_cast<uint16_t>(i));
-
-            /*
-            for (Attribute attr : mesh.attributes) {
-                std::size_t size = getFormatSize(attr.format);
-
-                if (attr.name == "POSITION") {
-                    vertexData.read(reinterpret_cast<char*>(&mesh.vertices.back().pos), size);
-                }
-                else if (attr.name == "NORMAL") {
-                    vertexData.read(reinterpret_cast<char*>(&mesh.vertices.back().normal), size);
-                }
-                else if (attr.name == "COLOR") {
-                    uint32_t color;
-
-                    vertexData.read(reinterpret_cast<char*>(&color), size);
-
-                    // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
-                    mesh.vertices.back().color.r = static_cast<float>((color >> 0) & 0xff) / 255.f;
-                    mesh.vertices.back().color.g = static_cast<float>((color >> 8) & 0xff) / 255.f;
-                    mesh.vertices.back().color.b = static_cast<float>((color >> 16) & 0xff) / 255.f;
-                }
-                else {
-                    std::cout << "Unexpected attribute name: " << attr.name << std::endl;
-                }
-            }
-            */
-        }
-
-        vertexData.close();
-    }
-
-    void loadVertices(Mesh& mesh) {
-        // assume that all vertices for a model are in the same file
-
-        mesh.vertices = std::vector<VertexColor>();
-        mesh.indices = {};
-
-        std::ifstream vertexData;
-        vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
-
-        if (vertexData.fail()) {
-            throw std::runtime_error("Failed to load vertices from " + mesh.src + "!");
-        }
-
-        // TODO: Maybe I should read directly into a byte array that I can then copy to the vertex buffer in one go
-
-        for (uint32_t i = 0; i < mesh.vertexCount; i++) {
-            mesh.vertices.push_back({});
-            mesh.indices.push_back(static_cast<uint16_t>(i));
-
-            for (Attribute attr : mesh.attributes) {
-                std::size_t size = getFormatSize(attr.format);
-
-                if (attr.name == "POSITION") {
-                    vertexData.read(reinterpret_cast<char*>(&mesh.vertices.back().pos), size);
-                }
-                else if (attr.name == "NORMAL") {
-                    vertexData.read(reinterpret_cast<char*>(&mesh.vertices.back().normal), size);
-                }
-                else if (attr.name == "COLOR") {
-                    uint32_t color;
-
-                    vertexData.read(reinterpret_cast<char*>(&color), size);
-
-                    // the leftmost channel is alpha, so ignoring that since we're just doing rgb colors
-                    mesh.vertices.back().color.r = static_cast<float>((color >> 0) & 0xff) / 255.f;
-                    mesh.vertices.back().color.g = static_cast<float>((color >> 8) & 0xff) / 255.f;
-                    mesh.vertices.back().color.b = static_cast<float>((color >> 16) & 0xff) / 255.f;
-                }
-                else {
-                    std::cout << "Unexpected attribute name: " << attr.name << std::endl;
-                }
-            }
         }
 
         vertexData.close();
@@ -2255,21 +2300,11 @@ private:
         }
     }
 
+    template <typename T>
     void createVertexBuffer(Mesh& mesh) {
-        VkDeviceSize bufferSize = sizeof(mesh.vertices[0]) * mesh.vertices.size();
-        /*
-        VkDeviceSize bufferSize;
+        const std::vector<T>& vertices = std::get<std::vector<T>>(mesh.vertices);
 
-        if (mesh.vertexType == Material::Type::SIMPLE) {
-            const std::vector<VertexColor>& vertices = std::get<std::vector<VertexColor>>(mesh.verticesNew);
-
-            bufferSize = sizeof(vertices[0]) * vertices.size();
-        } else {
-            const std::vector<VertexTexture>& vertices = std::get<std::vector<VertexTexture>>(mesh.verticesNew);
-
-            bufferSize = sizeof(vertices[0]) * vertices.size();
-        }
-        */
+        VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
         VkBuffer stagingBuffer;
         VkDeviceMemory stagingBufferMemory;
@@ -2280,19 +2315,7 @@ private:
 
         void* data;
         vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, mesh.vertices.data(), (size_t)bufferSize);
-
-        /*
-        if (mesh.vertexType == Material::Type::SIMPLE) {
-            const std::vector<VertexColor>& vertices = std::get<std::vector<VertexColor>>(mesh.verticesNew);
-
-            memcpy(data, vertices.data(), (size_t)bufferSize);
-        } else {
-            const std::vector<VertexTexture>& vertices = std::get<std::vector<VertexTexture>>(mesh.verticesNew);
-
-            memcpy(data, vertices.data(), (size_t)bufferSize);
-        }
-        */
+        memcpy(data, vertices.data(), (size_t)bufferSize);
 
         vkUnmapMemory(device, stagingBufferMemory);
 
@@ -2333,14 +2356,16 @@ private:
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
+    template<typename T>
     std::array<glm::vec3, 2> getAABB(const Mesh& mesh) {
         std::array<glm::vec3, 2> aabb;
+
+        const std::vector<T>& vertices = std::get<std::vector<T>>(mesh.vertices);
 
         aabb[0] = glm::vec3(std::numeric_limits<float>::max());
         aabb[1] = glm::vec3(std::numeric_limits<float>::min());
 
-        /*
-        for (const VertexColor& vert : mesh.vertices) {
+        for (const T& vert : vertices) {
             // min vertex
             aabb[0].x = std::min(aabb[0].x, vert.pos.x);
             aabb[0].y = std::min(aabb[0].y, vert.pos.y);
@@ -2357,7 +2382,6 @@ private:
             std::cout << "AABB max: " << glm::to_string(aabb[1]) << std::endl;
             std::cout << std::endl;
         }
-        */
 
         return aabb;
     }
@@ -2554,7 +2578,8 @@ private:
         createImage(swapChainExtent.width, swapChainExtent.height, swapChainImageFormat,
                     VK_IMAGE_TILING_LINEAR, VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    dstImage, dstImageMemory);
+                    0,
+                    1, dstImage, dstImageMemory);
 
         VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
@@ -3005,7 +3030,9 @@ private:
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline.pipeline);
+        // TODO: Should bind and render multiple pipelines in one command buffer
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, texturePipeline.pipeline);
 
         VkViewport viewport{};
         viewport.x = 0;
@@ -3093,10 +3120,14 @@ private:
         }
 
         vkDestroySampler(device, textureSampler, nullptr);
-        vkDestroyImageView(device, textureImageView, nullptr);
 
+        vkDestroyImageView(device, textureImageView, nullptr);
         vkDestroyImage(device, textureImage, nullptr);
         vkFreeMemory(device, textureImageMemory, nullptr);
+
+        vkDestroyImageView(device, cubemapImageView, nullptr);
+        vkDestroyImage(device, cubemapImage, nullptr);
+        vkFreeMemory(device, cubemapImageMemory, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);

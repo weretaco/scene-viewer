@@ -42,13 +42,17 @@ JsonLoader::JsonNode* JsonLoader::parseObject() {
             throw std::logic_error("No more tokens");
         } else {
             Token token = getToken();
+            if (token.type == Token::Type::CURLY_CLOSE) { // check for an empty object
+                completed = true;
+                continue;
+            }
             std::string key = token.value;
 
-            getToken(); // get the comma
+            getToken(); // get the colon
 
             (*obj)[key] = parseNode();
 
-            token = getToken();
+            token = getToken(); // get the comma, unless it's the element in the object
             if (token.type == Token::Type::CURLY_CLOSE) {
                 completed = true;
             }
@@ -127,6 +131,7 @@ JsonLoader::JsonNode* JsonLoader::parseNode() {
             node = parseNumber();
             break;
         default:
+            std::cout << "TOKEN VALUE: " << token.value << std::endl;
             throw std::runtime_error("Error parsing JSON: Unknown token type");
         }
     }
