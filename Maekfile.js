@@ -13,6 +13,9 @@ if (maek.OS === "windows") {
 	maek.options.CPPFlags.push(
 		`/O2`, //optimize
 		//include paths for nest libraries:
+		`/I/VulkanSDK/1.3.275.0/Include`,
+		`-I../glfw/include`,
+		`/I./includes`,
 		`/I${NEST_LIBS}/includes`,
 		//#disable a few warnings:
 		`/wd4146`, //-1U is still unsigned
@@ -49,8 +52,10 @@ if (maek.OS === "windows") {
 // from: file to copy from
 // to: file to copy to
 let copies = [
-	maek.COPY(`shaders/vert.spv`, `dist/vert.spv`),
-	maek.COPY(`shaders/frag.spv`, `dist/frag.spv`),
+	maek.COPY(`shaders/color-vert.spv`, `dist/color-vert.spv`),
+	maek.COPY(`shaders/color-frag.spv`, `dist/color-frag.spv`),
+	maek.COPY(`shaders/texture-vert.spv`, `dist/texture-vert.spv`),
+	maek.COPY(`shaders/texture-frag.spv`, `dist/texture-frag.spv`),
 ];
 
 //call rules on the maek object to specify tasks.
@@ -67,7 +72,7 @@ const game_objs = [
 	maek.CPP('eventloader.cpp'),
 	maek.CPP('OrbitCamera.cpp'),
 	maek.CPP('rg_WindowGLFW.cpp'),
-	maek.CPP('rg_WindowNativeLinux.cpp')
+	//maek.CPP('rg_WindowNativeLinux.cpp')
 ];
 
 //the '[exeFile =] LINK(objFiles, exeFileBase, [, options])' links an array of objects into an executable:

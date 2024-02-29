@@ -22,7 +22,7 @@ JsonLoader::JsonNode* JsonLoader::parseJson() {
             if (!root) {
                 root = node;
             }
-        } catch (const std::logic_error& e) {
+        } catch (const std::logic_error&) {
             break;
         }
     }
@@ -165,7 +165,7 @@ JsonLoader::Token JsonLoader::getToken() {
         token.value = "";
         token.value += c;
 
-        size_t prevCharPos = fileStream.tellg();
+        std::streampos prevCharPos = fileStream.tellg();
 
         while (c == '-' || c == '+' || c == 'e' || c == '.' || std::isdigit(c)) { // check for scientific notation as well
             prevCharPos = fileStream.tellg();

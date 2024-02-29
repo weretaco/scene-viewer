@@ -415,7 +415,7 @@ public:
         if (key == GLFW_KEY_Z && action == GLFW_PRESS) {
             curCamera++;
 
-            if (curCamera > scene.cameras.size()) {
+            if (curCamera > gameScene.cameras.size()) {
                 curCamera = 1;
             }
 
@@ -487,7 +487,7 @@ private:
 
     UniformBufferObject ubo{};
 
-    Scene scene;
+    Scene gameScene;
     OrbitCamera orbitCamera;
     uint32_t curCamera = 0; // 0 is the user-controlled orbit camera, values greater than 0 are scene cameras
     Frustum frustum;
@@ -521,9 +521,8 @@ private:
     }
 
     void processCLIArgs(int argc, char* argv[]) {
-        args = {
-            .sceneFile = ""
-        };
+        args = {};
+        args.sceneFile = "";
 
         std::cout << "CLI ARGS:" << std::endl;
         for (int i=0; i<argc; i++) {
@@ -576,7 +575,7 @@ private:
         try {
             args.width = stoi(arr[1]);
             args.height = stoi(arr[2]);
-        } catch (const std::invalid_argument& e) {
+        } catch (const std::invalid_argument&) {
             throw std::invalid_argument("At least one of the arguments for --drawing-size is invalud: " + arr[1] + " " + arr[2]);
         }
     }
@@ -836,9 +835,9 @@ private:
 
         std::cout << "Available devices:" << std::endl;
 
-        for (const VkPhysicalDevice& device : devices) {
+        for (const VkPhysicalDevice& dev : devices) {
             VkPhysicalDeviceProperties deviceProperties;
-            vkGetPhysicalDeviceProperties(device, &deviceProperties);
+            vkGetPhysicalDeviceProperties(dev, &deviceProperties);
 
             std::cout << deviceProperties.deviceName << std::endl;
         }
@@ -863,9 +862,9 @@ private:
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
         if (args.physicalDeviceName == "") {
-            for (const VkPhysicalDevice& device : devices) {
-                if (isDeviceSuitable(device)) {
-                    physicalDevice = device;
+            for (const VkPhysicalDevice& dev : devices) {
+                if (isDeviceSuitable(dev)) {
+                    physicalDevice = dev;
                     break;
                 }
             }
@@ -874,16 +873,16 @@ private:
                 throw std::runtime_error("failed to find a suitable GPU!");
             }
         } else {
-            for (const VkPhysicalDevice& device : devices) {
+            for (const VkPhysicalDevice& dev : devices) {
                 VkPhysicalDeviceProperties deviceProperties;
-                vkGetPhysicalDeviceProperties(device, &deviceProperties);
+                vkGetPhysicalDeviceProperties(dev, &deviceProperties);
 
                 if (args.physicalDeviceName == deviceProperties.deviceName) {
-                    if (!isDeviceSuitable(device)) {
+                    if (!isDeviceSuitable(dev)) {
                         throw std::runtime_error("The GPU named \"" + args.physicalDeviceName + "\" does not support the required features!");
                     }
 
-                    physicalDevice = device;
+                    physicalDevice = dev;
                     break;
                 }
             }
@@ -894,35 +893,35 @@ private:
         }
     }
 
-    bool isDeviceSuitable(VkPhysicalDevice device) {
+    bool isDeviceSuitable(VkPhysicalDevice dev) {
         VkPhysicalDeviceFeatures supportedFeatures;
-        vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
+        vkGetPhysicalDeviceFeatures(dev, &supportedFeatures);
 
-        QueueFamilyIndices indices = findQueueFamilies(device);
+        QueueFamilyIndices indices = findQueueFamilies(dev);
 
         if (args.headless) {
             return indices.graphicsFamily.has_value();
         }
 
-        bool extensionsSupported = checkDeviceExtensionSupport(device);
+        bool extensionsSupported = checkDeviceExtensionSupport(dev);
 
         bool swapChainAdequate = false;
         if (extensionsSupported) {
-            SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+            SwapChainSupportDetails swapChainSupport = querySwapChainSupport(dev);
             swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
         }
 
         return indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
     }
 
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice dev) {
         QueueFamilyIndices indices;
 
         uint32_t queueFamilyCount = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+        vkGetPhysicalDeviceQueueFamilyProperties(dev, &queueFamilyCount, nullptr);
 
         std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+        vkGetPhysicalDeviceQueueFamilyProperties(dev, &queueFamilyCount, queueFamilies.data());
 
         int i = 0;
         for (const auto& queueFamily : queueFamilies) {
@@ -935,7 +934,7 @@ private:
             }
 
             VkBool32 presentSupport = false;
-            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+            vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface, &presentSupport);
 
             if (presentSupport) {
                 indices.presentFamily = i;
@@ -952,12 +951,12 @@ private:
         return indices;
     }
 
-    bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+    bool checkDeviceExtensionSupport(VkPhysicalDevice dev) {
         uint32_t extensionCount;
-        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+        vkEnumerateDeviceExtensionProperties(dev, nullptr, &extensionCount, nullptr);
 
         std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+        vkEnumerateDeviceExtensionProperties(dev, nullptr, &extensionCount, availableExtensions.data());
 
         std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
 
@@ -968,25 +967,25 @@ private:
         return requiredExtensions.empty();
     }
 
-    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice dev) {
         SwapChainSupportDetails details{};
 
-        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev, surface, &details.capabilities);
 
         uint32_t formatCount;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &formatCount, nullptr);
 
         if (formatCount > 0) {
             details.formats.resize(formatCount);
-            vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+            vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &formatCount, details.formats.data());
         }
 
         uint32_t presentModeCount;
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &presentModeCount, nullptr);
 
         if (presentModeCount > 0) {
             details.presentModes.resize(presentModeCount);
-            vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+            vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &presentModeCount, details.presentModes.data());
         }
 
         return details;
@@ -1526,7 +1525,7 @@ private:
         throw std::runtime_error("failed to find supported format!");
     }
 
-    void loadTextureImage(std::string filePath, VkImage& textureImage, VkDeviceMemory& textureMemory) {
+    void loadTextureImage(std::string filePath, VkImage& texImage, VkDeviceMemory& texMemory) {
         int texWidth, texHeight, texChannels;
         stbi_uc* pixels = stbi_load(filePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         VkDeviceSize imageSize = texWidth * texHeight * 4;
@@ -1555,17 +1554,17 @@ private:
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             0,
-            1, textureImage, textureMemory);
+            1, texImage, texMemory);
 
-        transitionImageLayout(textureImage,
+        transitionImageLayout(texImage,
             VK_FORMAT_R8G8B8A8_SRGB,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             1);
 
-        copyBufferToImage(stagingBuffer, textureImage,
+        copyBufferToImage(stagingBuffer, texImage,
             static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), 1);
 
-        transitionImageLayout(textureImage,
+        transitionImageLayout(texImage,
             VK_FORMAT_R8G8B8A8_SRGB,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             1);
@@ -1575,7 +1574,7 @@ private:
     }
 
 
-    void loadCubemapImage(std::string filePath, VkImage& textureImage, VkDeviceMemory& textureMemory) {
+    void loadCubemapImage(std::string filePath, VkImage& texImage, VkDeviceMemory& texMemory) {
         int texWidth, texHeight, texChannels;
         stbi_uc* pixels = stbi_load(filePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 
@@ -1584,8 +1583,8 @@ private:
         }
 
         VkDeviceSize imageSize = texWidth * texHeight * 4;
-        uint16_t numLayers = 6;
-        VkDeviceSize layerSize = imageSize / numLayers;
+        uint32_t numLayers = 6;
+        uint32_t layerSize = static_cast<uint32_t>(imageSize) / numLayers;
         texHeight = texHeight / numLayers;
 
         VkBuffer stagingBuffer;
@@ -1608,17 +1607,17 @@ private:
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
-            6, textureImage, textureMemory);
+            layerSize, texImage, texMemory);
 
-        transitionImageLayout(textureImage,
+        transitionImageLayout(texImage,
             VK_FORMAT_R8G8B8A8_SRGB,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            6);
+            layerSize);
 
-        copyBufferToImage(stagingBuffer, textureImage,
+        copyBufferToImage(stagingBuffer, texImage,
             static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), numLayers);
 
-        transitionImageLayout(textureImage,
+        transitionImageLayout(texImage,
             VK_FORMAT_R8G8B8A8_SRGB,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             numLayers);
@@ -1811,12 +1810,12 @@ private:
         sceneLoader.close();
 
         std::cout << "CONSTRUCTING SCENE..." << std::endl;
-        constructSceneFromJson(scene, sceneJson);
+        constructSceneFromJson(gameScene, sceneJson);
 
         //scene.print();
         std::cout << std::endl << "SHOWING SCENE CAMERAS" << std::endl;
         size_t i = 0;
-        for (const Camera& cam : scene.cameras) {
+        for (const Camera& cam : gameScene.cameras) {
             std:: cout << cam.name << std::endl;
 
             if (cam.name == args.cameraName) {
@@ -1834,7 +1833,7 @@ private:
             throw std::runtime_error("No camera named \"" + args.cameraName + "\" was found in the scene");
         }
 
-        for (Mesh& mesh : scene.meshes) {
+        for (Mesh& mesh : gameScene.meshes) {
             if (mesh.vertexType == Material::Type::SIMPLE) {
                 std::cout << "Loading data for SIMPLE mesh" << std::endl;
                 loadVertices<VertexColor>(mesh);
@@ -1886,7 +1885,7 @@ private:
                     }
                 } else if (sceneType == "NODE") {
                     std::cout << "NODE NODE..." << std::endl;
-                    scene.typeIndices.push_back(scene.nodes.size());
+                    scene.typeIndices.push_back(static_cast<uint16_t>(scene.nodes.size()));
                     scene.nodes.push_back({});
 
                     scene.nodes.back().name = std::get<std::string>(obj["name"]->value);
@@ -1912,8 +1911,8 @@ private:
                     if (obj.count("children") > 0) {
                         std::vector<JsonLoader::JsonNode*>& children = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["children"]->value);
 
-                        for (JsonLoader::JsonNode* node : children) {
-                            scene.nodes.back().children.push_back(static_cast<uint16_t>(std::get<float>(node->value)));
+                        for (JsonLoader::JsonNode* childNode : children) {
+                            scene.nodes.back().children.push_back(static_cast<uint16_t>(std::get<float>(childNode->value)));
                         }
                     }
 
@@ -1926,7 +1925,7 @@ private:
                     }
                 } else if (sceneType == "MESH") {
                     std::cout << "MESH NODE..." << std::endl;
-                    scene.typeIndices.push_back(scene.meshes.size());
+                    scene.typeIndices.push_back(static_cast<uint16_t>(scene.meshes.size()));
                     scene.meshes.push_back({});
 
                     scene.meshes.back().name = std::get<std::string>(obj["name"]->value);
@@ -2005,7 +2004,7 @@ private:
                     scene.meshes.back().stride = scene.meshes.back().attributes[0].stride;
                 } else if (sceneType == "CAMERA") {
                     std::cout << "CAMERA NODE..." << std::endl;
-                    scene.typeIndices.push_back(scene.cameras.size());
+                    scene.typeIndices.push_back(static_cast<uint16_t>(scene.cameras.size()));
                     scene.cameras.push_back({});
 
                     scene.cameras.back().name = std::get<std::string>(obj["name"]->value);
@@ -2018,7 +2017,7 @@ private:
                     scene.cameras.back().far = std::get<float>(perspective["far"]->value);
                 } else if (sceneType == "DRIVER") {
                     std::cout << "DRIVER NODE..." << std::endl;
-                    scene.typeIndices.push_back(scene.drivers.size());
+                    scene.typeIndices.push_back(static_cast<uint16_t>(scene.drivers.size()));
                     scene.drivers.push_back({});
 
                     scene.drivers.back().name = std::get<std::string>(obj["name"]->value);
@@ -2032,16 +2031,16 @@ private:
                     }
 
                     std::vector<JsonLoader::JsonNode*>& times = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["times"]->value);
-                    for (JsonLoader::JsonNode* node : times) {
-                        scene.drivers.back().times.push_back(std::get<float>(node->value));
+                    for (JsonLoader::JsonNode* timeNode : times) {
+                        scene.drivers.back().times.push_back(std::get<float>(timeNode->value));
                     }
 
                     std::vector<JsonLoader::JsonNode*>& values = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["values"]->value);
-                    for (JsonLoader::JsonNode* node : values) {
-                        scene.drivers.back().values.push_back(std::get<float>(node->value));
+                    for (JsonLoader::JsonNode* valueNode : values) {
+                        scene.drivers.back().values.push_back(std::get<float>(valueNode->value));
                     }
 
-                    scene.drivers.back().animIndex = scene.anims.size();
+                    scene.drivers.back().animIndex = static_cast<uint16_t>(scene.anims.size());
 
                     // Also initialize the corresponding Animation objects
 
@@ -2049,7 +2048,7 @@ private:
                     scene.anims.back().curFrameIndex = std::numeric_limits<uint16_t>::max();
                 } else if (sceneType == "MATERIAL") {
                     std::cout << "MATERIAL NODE..." << std::endl;
-                    scene.typeIndices.push_back(scene.materials.size());
+                    scene.typeIndices.push_back(static_cast<uint16_t>(scene.materials.size()));
                     scene.materials.push_back({});
 
                     scene.materials.back().name = std::get<std::string>(obj["name"]->value);
@@ -2058,16 +2057,16 @@ private:
                         std::map<std::string, JsonLoader::JsonNode*>& jsonObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["normalMap"]->value);
 
                         scene.materials.back().normalMap = {
-                            src: std::get<std::string>(jsonObj["src"]->value),
-                            type: Texture::Type::Tex2D,
-                            format: Texture::Format::Linear
+                            std::get<std::string>(jsonObj["src"]->value),
+                            Texture::Type::Tex2D,
+                            Texture::Format::Linear
                         };
                     } else {
                         // should represent a constant 0,0,1 normal map
                         scene.materials.back().normalMap = {
-                            src: "",
-                            type: Texture::Type::Tex2D,
-                            format: Texture::Format::Linear
+                            "",
+                            Texture::Type::Tex2D,
+                            Texture::Format::Linear
                         };
                     }
 
@@ -2075,21 +2074,21 @@ private:
                         std::map<std::string, JsonLoader::JsonNode*>& jsonObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["displacementMap"]->value);
 
                         scene.materials.back().displacementMap = {
-                            src: std::get<std::string>(jsonObj["src"]->value),
-                            type: Texture::Type::Tex2D,
-                            format: Texture::Format::Linear
+                            std::get<std::string>(jsonObj["src"]->value),
+                            Texture::Type::Tex2D,
+                            Texture::Format::Linear
                         };
                     } else {
                         // should represent a constant 0 displacement map
                         scene.materials.back().displacementMap = {
-                            src: "",
-                            type: Texture::Type::Tex2D,
-                            format: Texture::Format::Linear
+                            "",
+                            Texture::Type::Tex2D,
+                            Texture::Format::Linear
                         };
                     }
                 } else if (sceneType == "ENVIRONMENT") {
                     std::cout << "ENVIRONMENT NODE..." << std::endl;
-                    scene.typeIndices.push_back(scene.environments.size());
+                    scene.typeIndices.push_back(static_cast<uint16_t>(scene.environments.size()));
                     scene.environments.push_back({});
 
                     std::map<std::string, JsonLoader::JsonNode*>& radianceJson = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["radiance"]->value);
@@ -2098,13 +2097,13 @@ private:
                     std::string texType = std::get<std::string>(radianceJson["type"]->value);
 
                     scene.environments.back() = {
-                        name: std::get<std::string>(obj["name"]->value),
-                        radiance: {
-                            src: std::get<std::string>(radianceJson["src"]->value),
+                        std::get<std::string>(obj["name"]->value),
+                        {
+                            std::get<std::string>(radianceJson["src"]->value),
 
                             // assume only two types and formats
-                            type: texType == "2D" ? Texture::Type::Tex2D : Texture::Type::TexCube,
-                            format: texFormat == "linear" ? Texture::Format::Linear : Texture::Format::RGBE
+                            texType == "2D" ? Texture::Type::Tex2D : Texture::Type::TexCube,
+                            texFormat == "linear" ? Texture::Format::Linear : Texture::Format::RGBE
                         }
                     };
                 }
@@ -2682,9 +2681,9 @@ private:
     }
 
     void animate(std::chrono::high_resolution_clock::time_point curTime) {
-        for (const Driver& driver : scene.drivers) {
-            Animation& anim = scene.anims[driver.animIndex];
-            Node& node = scene.nodes[driver.node];
+        for (const Driver& driver : gameScene.drivers) {
+            Animation& anim = gameScene.anims[driver.animIndex];
+            Node& node = gameScene.nodes[driver.node];
 
             float elapsedTime;
 
@@ -2879,7 +2878,7 @@ private:
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
-    void updateUniformBuffer(uint32_t currentFrame) {
+    void updateUniformBuffer(uint32_t curFrame) {
         //static auto startTime = std::chrono::high_resolution_clock::now();
 
         //std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
@@ -2897,20 +2896,20 @@ private:
         //std::cout << "Near Plane: " << glm::to_string(frustum.nearPlane) << std::endl;
         //std::cout << "Far Plane: " << glm::to_string(frustum.farPlane) << std::endl;
 
-        memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+        memcpy(uniformBuffersMapped[curFrame], &ubo, sizeof(ubo));
     }
 
     Camera getActiveCam() {
         if (curCamera == 0) {
             return {
-                .name = "User Cam",
-                .vfov = 0.119856f,
-                .aspect = 1.77778f,
-                .near = 0.1f,
-                .far = 1000.0f
+                "User Cam", // name
+                0.119856f,  // vfov
+                1.77778f,   // aspect
+                0.1f,       // near
+                1000.0f     // far
             };
         } else {
-            return scene.cameras[curCamera - 1];
+            return gameScene.cameras[curCamera - 1];
         }
     }
 
@@ -2918,7 +2917,7 @@ private:
         if (curCamera == 0) {
             return orbitCamera.getViewMatrix();
         } else {
-            return scene.cameras[curCamera - 1].viewMat;
+            return gameScene.cameras[curCamera - 1].viewMat;
         }
     }
 
@@ -2927,13 +2926,13 @@ private:
 
         const Camera& cam = curCamera == 0 ?
             Camera {
-                .name = "User Cam",
-                .vfov = 0.119856f,
-                .aspect = 1.77778f,
-                .near = 0.1f,
-                .far = 1000.0f
+                "User Cam", // name
+                0.119856f,  // vfov
+                1.77778f,   // aspect
+                0.1f,       // near
+                1000.0f     // far
             } :
-            scene.cameras[curCamera - 1];
+            gameScene.cameras[curCamera - 1];
 
         proj = glm::perspective(cam.vfov, cam.aspect, cam.near, cam.far);
         proj[1][1] *= -1;
@@ -2981,23 +2980,23 @@ private:
         return -r <= getSignedDistanceToPlane(plane, center);
     }
 
-    bool frustumIntersectsAABB(const Frustum& frustum, glm::vec3 center, glm::vec3 extents) {
-        if (!planeIntersectsAABB(frustum.nearPlane, center, extents)) {
+    bool frustumIntersectsAABB(const Frustum& camFrustum, glm::vec3 center, glm::vec3 extents) {
+        if (!planeIntersectsAABB(camFrustum.nearPlane, center, extents)) {
             return false;
         }
-        if (!planeIntersectsAABB(frustum.farPlane, center, extents)) {
+        if (!planeIntersectsAABB(camFrustum.farPlane, center, extents)) {
             return false;
         }
-        if (!planeIntersectsAABB(frustum.leftPlane, center, extents)) {
+        if (!planeIntersectsAABB(camFrustum.leftPlane, center, extents)) {
             return false;
         }
-        if (!planeIntersectsAABB(frustum.rightPlane, center, extents)) {
+        if (!planeIntersectsAABB(camFrustum.rightPlane, center, extents)) {
             return false;
         }
-        if (!planeIntersectsAABB(frustum.topPlane, center, extents)) {
+        if (!planeIntersectsAABB(camFrustum.topPlane, center, extents)) {
             return false;
         }
-        if (!planeIntersectsAABB(frustum.bottomPlane, center, extents)) {
+        if (!planeIntersectsAABB(camFrustum.bottomPlane, center, extents)) {
             return false;
         }
         
@@ -3048,7 +3047,7 @@ private:
         scissor.extent = swapChainExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        renderSceneGraph(commandBuffer, scene);
+        renderSceneGraph(commandBuffer, gameScene);
 
         vkCmdEndRenderPass(commandBuffer);
 
@@ -3145,7 +3144,7 @@ private:
 
         vkDestroyRenderPass(device, renderPass, nullptr);
 
-        for (Mesh& mesh : scene.meshes) {
+        for (Mesh& mesh : gameScene.meshes) {
             mesh.cleanupBuffers(device);
         }
 
