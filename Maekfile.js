@@ -13,7 +13,10 @@ if (maek.OS === "windows") {
 	maek.options.CPPFlags.push(
 		`/O2`, //optimize
 		//include paths for nest libraries:
+		`/I/VulkanSDK/1.3.275.0/Include`,
 		`/I${NEST_LIBS}/includes`,
+		`-I../glfw/include`,
+		`/I./includes`,
 		//#disable a few warnings:
 		`/wd4146`, //-1U is still unsigned
 		`/wd4297`, //unforunately SDLmain is nothrow
@@ -28,7 +31,8 @@ if (maek.OS === "windows") {
 	maek.options.CPPFlags.push(
 		`-O2`, //optimize
 		//include paths for nest libraries:
-		`-I${NEST_LIBS}/includes`
+		`-I${NEST_LIBS}/includes`,
+		`-Iincludes`
 	);
 	maek.options.LINKLibs.push(
 		//linker flags for nest libraries:
@@ -49,8 +53,17 @@ if (maek.OS === "windows") {
 // from: file to copy from
 // to: file to copy to
 let copies = [
-	maek.COPY(`shaders/vert.spv`, `dist/vert.spv`),
-	maek.COPY(`shaders/frag.spv`, `dist/frag.spv`),
+	maek.COPY(`shaders/color-vert.spv`, `dist/shaders/color-vert.spv`),
+	maek.COPY(`shaders/color-frag.spv`, `dist/shaders/color-frag.spv`),
+	maek.COPY(`shaders/texture-vert.spv`, `dist/shaders/texture-vert.spv`),
+	maek.COPY(`shaders/texture-frag.spv`, `dist/shaders/texture-frag.spv`),
+
+	maek.COPY(`scenes/env-cube.s72`, `dist/scenes/env-cube.s72`),
+	maek.COPY(`scenes/env-cube.b72`, `dist/scenes/env-cube.b72`),
+	maek.COPY(`scenes/env-cube.png`, `dist/scenes/env-cube.png`),
+
+	// this is just from the tutorial, but leaving it in the code as a convenient reference for loading/binding textures
+	maek.COPY(`textures/texture.jpg`, `dist/textures/texture.jpg`),
 ];
 
 //call rules on the maek object to specify tasks.
@@ -67,14 +80,14 @@ const game_objs = [
 	maek.CPP('eventloader.cpp'),
 	maek.CPP('OrbitCamera.cpp'),
 	maek.CPP('rg_WindowGLFW.cpp'),
-	maek.CPP('rg_WindowNativeLinux.cpp')
+	//maek.CPP('rg_WindowNativeLinux.cpp')
 ];
 
 //the '[exeFile =] LINK(objFiles, exeFileBase, [, options])' links an array of objects into an executable:
 // objFiles: array of objects to link
 // exeFileBase: name of executable file to produce
 //returns exeFile: exeFileBase + a platform-dependant suffix (e.g., '.exe' on windows)
-const game_exe = maek.LINK(game_objs, 'dist/game');
+const game_exe = maek.LINK(game_objs, 'dist/SceneViewer');
 
 //set the default target to the game (and copy the readme files):
 maek.TARGETS = [game_exe, ...copies];

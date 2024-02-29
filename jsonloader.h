@@ -56,7 +56,7 @@ private:
 
     std::fstream fileStream;
     JsonNode* root;
-    size_t prevPos;
+    std::streampos prevPos;
 
     Token getToken();
     char getWithoutWhiteSpace();

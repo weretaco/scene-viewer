@@ -14,3 +14,7 @@ shaders:
 
 clean:
 	rm -f SceneViewer
+
+# Useful so I don't forget all the CLI settings
+run:
+	./SceneViewer --scene scenes/env-cube.s72 --physical-device "AMD Radeon RX 6950 XT (RADV NAVI21)" --drawing-size 1600 1200 --culling none
