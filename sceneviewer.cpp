@@ -19,7 +19,7 @@
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include <stb_image/stb_image.h>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_RADIANS
@@ -388,7 +388,7 @@ struct CLIArguments {
 void glfwScrollCallback(GLFWwindow* window, double xOffset, double yOffset);
 void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
-class HelloTriangleApplication {
+class SceneViewer {
 public:
     void run(int argc, char* argv[]) {
         processCLIArgs(argc, argv);
@@ -3226,17 +3226,17 @@ private:
 };
 
 void glfwScrollCallback(GLFWwindow* window, double xOffset, double yOffset) {
-    static_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window))->mouseScrollCallback(static_cast<float>(yOffset));
+    static_cast<SceneViewer*>(glfwGetWindowUserPointer(window))->mouseScrollCallback(static_cast<float>(yOffset));
 }
 
 void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    static_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window))->keyCallback(key, action);
+    static_cast<SceneViewer*>(glfwGetWindowUserPointer(window))->keyCallback(key, action);
 }
 
 int main(int argc, char* argv[]) {
     std::cout << std::boolalpha;
 
-    HelloTriangleApplication app;
+    SceneViewer app;
 
     try {
         app.run(argc, argv);
