@@ -12,14 +12,16 @@ layout(push_constant, std430) uniform PushConstant {
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec4 inColor;
+layout(location = 2) in vec4 inTangent;
+layout(location = 3) in vec2 inTexCoord;
+layout(location = 4) in vec4 inColor;
 
 layout(location = 0) out vec3 fragNormal;
-layout(location = 1) out vec4 fragColor;
+
+// only fragNormal is used
 
 void main() {
-    fragNormal = normalize(vec3(ubo.view * pc.model * vec4(inNormal, 0.0))); // this will only apply the rotation of the modelview matrix to the normal
-    fragColor = inColor;
+    fragNormal = mat3(transpose(inverse(pc.model))) * inNormal;
 
     gl_Position = ubo.proj * ubo.view * pc.model * vec4(inPosition, 1.0);
 }

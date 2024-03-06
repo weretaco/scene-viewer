@@ -22,9 +22,10 @@ layout(location = 2) out vec2 fragTexCoord;
 layout(location = 3) out vec4 fragColor;
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * pc.model * vec4(inPosition, 1.0);
     modelNormal = inNormal;
     fragNormal = normalize(vec3(ubo.view * pc.model * vec4(inNormal, 0.0))); // this will only apply the rotation of the modelview matrix to the normal
     fragTexCoord = inTexCoord;
     fragColor = inColor;
+
+    gl_Position = ubo.proj * ubo.view * pc.model * vec4(inPosition, 1.0);
 }

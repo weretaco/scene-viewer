@@ -216,7 +216,6 @@ struct Mesh {
         std::vector<VertexColor>,
         std::vector<VertexTexture>
     > vertices;
-    Material::Type vertexType;
 
     std::vector<uint16_t> indices;
 
@@ -668,7 +667,7 @@ private:
         createUniformBuffers();
 
         createGraphicsPipeline<VertexColor>(colorPipeline, "color");
-        createGraphicsPipeline<VertexTexture>(texturePipeline, "texture");
+        createGraphicsPipeline<VertexTexture>(texturePipeline, "mirror");
 
         loadTextureImage("textures/texture.jpg", textureImage, textureImageMemory);
         textureImageView = createImageView(textureImage,
@@ -1852,18 +1851,18 @@ private:
         }
 
         for (Mesh& mesh : gameScene.meshes) {
-            if (mesh.vertexType == Material::Type::SIMPLE) {
-                std::cout << "Loading data for SIMPLE mesh" << std::endl;
+            Material::Type matType = mesh.material.has_value()
+                ? gameScene.materials[mesh.material.value()].type
+                : Material::Type::SIMPLE;
+
+            if (matType == Material::Type::SIMPLE) {
                 loadVertices<VertexColor>(mesh);
                 createVertexBuffer<VertexColor>(mesh);
 
                 mesh.aabb = getAABB<VertexColor>(mesh);
             } else {
-                std::cout << "Loading data for mesh of type " << int(mesh.vertexType) << std::endl;
                 loadVertices<VertexTexture>(mesh);
-                std::cout << "Loaded vertices" << std::endl;
                 createVertexBuffer<VertexTexture>(mesh);
-                std::cout << "Created buffer" << std::endl;
 
                 mesh.aabb = getAABB<VertexTexture>(mesh);
             }
@@ -1961,20 +1960,15 @@ private:
                     }
 
                     std::map<std::string, JsonLoader::JsonNode*>& attributes = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["attributes"]->value);
-
+\
                     if (obj.count("material") > 0) {
-                        scene.meshes.back().material = static_cast<uint32_t>(std::get<float>(obj["material"]->value));
+                        scene.meshes.back().material = static_cast<uint16_t>(std::get<float>(obj["material"]->value));
                         scene.meshes.back().attributes.resize(5);
-
-                        // customize later since it can be any of them besides simple
-                        scene.meshes.back().vertexType = Material::Type::ENVIRONMENT;
                     } else {
-                        // this mesh uses the simple material
+                        // this mesh uses the default material
 
-                        scene.meshes.back().material = std::numeric_limits<uint32_t>::max();
+                        scene.meshes.back().material = std::nullopt;
                         scene.meshes.back().attributes.resize(3);
-
-                        scene.meshes.back().vertexType = Material::Type::SIMPLE;
                     }
 
                     for (const std::pair<const std::string, JsonLoader::JsonNode*>& attr : attributes) {
@@ -2104,6 +2098,18 @@ private:
                             Texture::Format::Linear
                         };
                     }
+
+                    if (obj.count("simple") > 0) {
+                        scene.materials.back().type = Material::Type::SIMPLE;
+                    } else if (obj.count("pbr") > 0) {
+                        scene.materials.back().type = Material::Type::PBR;
+                    } else if (obj.count("lambertian") > 0) {
+                        scene.materials.back().type = Material::Type::LAMBERTIAN;
+                    } else if (obj.count("mirror") > 0) {
+                        scene.materials.back().type = Material::Type::MIRROR;
+                    } else if (obj.count("environment") > 0) {
+                        scene.materials.back().type = Material::Type::ENVIRONMENT;
+                    }
                 } else if (sceneType == "ENVIRONMENT") {
                     std::cout << "ENVIRONMENT NODE..." << std::endl;
                     scene.typeIndices.push_back(static_cast<uint16_t>(scene.environments.size()));
@@ -2159,7 +2165,9 @@ private:
         }
 
         for (Mesh& mesh : scene.meshes) {
-            mesh.material = scene.typeIndices[mesh.material.value()];
+            if (mesh.material != std::nullopt) {
+                mesh.material = scene.typeIndices[mesh.material.value()];
+            }
         }
 
         // Generate view mats for cameras
@@ -2213,11 +2221,17 @@ private:
 
             glm::vec3 pos(transform * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
+            Material::Type matType = mesh.material.has_value()
+                ? gameScene.materials[mesh.material.value()].type
+                : Material::Type::SIMPLE;
+
             if (args.culling == "none" || frustumIntersectsAABB(frustum, center, halfExtent)) {
-                if (mesh.vertexType == Material::Type::SIMPLE) {
-                    renderMesh(colorPipeline, commandBuffer, mesh, transform);
-                } else {
+                if (matType == Material::Type::ENVIRONMENT) {
+                    renderMesh(texturePipeline, commandBuffer, mesh, transform);\
+                } else if (matType == Material::Type::MIRROR) {
                     renderMesh(texturePipeline, commandBuffer, mesh, transform);
+                } else { // SIMPLE material
+                    renderMesh(colorPipeline, commandBuffer, mesh, transform);
                 }
             }
         }
