@@ -7,9 +7,9 @@ SceneViewer: sceneviewer.cpp jsonloader.h jsonloader.cpp eventloader.h eventload
 	rm -f SceneViewer
 	g++ $(CFLAGS) -o SceneViewer sceneviewer.cpp jsonloader.cpp eventloader.cpp OrbitCamera.cpp rg_WindowGLFW.cpp rg_WindowNativeLinux.cpp $(LDFLAGS)
 
-LambertUtil: lambert-util.cpp
-	rm -f LambertUtil
-	g++ $(CFLAGS) -o LambertUtil lambert-util.cpp $(LDFLAGS)
+cube: cube-util.cpp
+	rm -f cube
+	g++ $(CFLAGS) -o cube cube-util.cpp $(LDFLAGS)
 
 .PHONY: shaders clean
 
