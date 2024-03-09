@@ -26,8 +26,10 @@
 {
 	"type":"MATERIAL",
 	"name":"environment material",
-	"lambertian":{
-		"albedo": { "src":"texture.jpg" }
+	"pbr":{
+		"albedo": { "src":"texture.jpg" },
+		"roughness": { "src":"texture.jpg" },
+		"metalness": { "src":"texture.jpg" }
 	}
 },
 {

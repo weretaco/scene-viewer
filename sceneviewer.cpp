@@ -37,10 +37,11 @@
 #include "jsonloader.h"
 #include "eventloader.h"
 #include "attribute.h"
+#include "graphics-pipeline.h"
 #include "vertexcolor.h"
 #include "vertextexture.h"
 #include "vertexlambert.h"
-#include "graphics-pipeline.h"
+#include "vertexpbr.h"
 
 #include "OrbitCamera.h"
 
@@ -222,7 +223,8 @@ struct Mesh {
     std::variant<
         std::vector<VertexColor>,
         std::vector<VertexTexture>,
-        std::vector<VertexLambert>
+        std::vector<VertexLambert>,
+        std::vector<VertexPBR>
     > vertices;
 
     std::vector<uint16_t> indices;
@@ -463,6 +465,7 @@ private:
     GraphicsPipeline<VertexColor> colorPipeline;
     GraphicsPipeline<VertexTexture> texturePipeline;
     GraphicsPipeline<VertexLambert> lambertPipeline;
+    GraphicsPipeline<VertexPBR> pbrPipeline;
 
     VkCommandPool commandPool;
 
@@ -484,6 +487,16 @@ private:
     VkDeviceMemory normalImageMemory;
     VkImageView normalImageView;
     VkSampler normalSampler;
+
+    VkImage metallicImage;
+    VkDeviceMemory metallicImageMemory;
+    VkImageView metallicImageView;
+    VkSampler metallicSampler;
+
+    VkImage roughnessImage;
+    VkDeviceMemory roughnessImageMemory;
+    VkImageView roughnessImageView;
+    VkSampler roughnessSampler;
 
     VkImage cubemapImage;
     VkDeviceMemory cubemapImageMemory;
@@ -685,11 +698,12 @@ private:
 
         createUniformBuffers();
 
-        createGraphicsPipeline<VertexColor>(colorPipeline, "color");
-        createGraphicsPipeline<VertexTexture>(texturePipeline, "texture");
+        createGraphicsPipeline(colorPipeline, "color");
+        createGraphicsPipeline(texturePipeline, "texture");
         // TODO; Maybe create a separate pipeline for mirror instead of just using the texture pipeline
-        //createGraphicsPipeline<VertexTexture>(texturePipeline, "mirror");
-        createGraphicsPipeline<VertexLambert>(lambertPipeline, "lambert");
+        //createGraphicsPipeline(texturePipeline, "mirror");
+        createGraphicsPipeline(lambertPipeline, "lambert");
+        createGraphicsPipeline(pbrPipeline, "pbr");
 
         loadTextureImage("textures/texture.jpg", textureImage, textureImageMemory);
         textureImageView = createImageView(textureImage,
@@ -715,6 +729,24 @@ private:
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 1);
         normalSampler = createTextureSampler();
+
+        // TODO: Read the filepath from the scene file instead
+        loadTextureImage("textures/texture.jpg", metallicImage, metallicImageMemory);
+        metallicImageView = createImageView(metallicImage,
+                                VK_IMAGE_VIEW_TYPE_2D,
+                                VK_FORMAT_R8G8B8A8_SRGB,
+                                VK_IMAGE_ASPECT_COLOR_BIT,
+                                1);
+        metallicSampler = createTextureSampler();
+
+        // TODO: Read the filepath from the scene file instead
+        loadTextureImage("textures/texture.jpg", roughnessImage, roughnessImageMemory);
+        roughnessImageView = createImageView(roughnessImage,
+                                VK_IMAGE_VIEW_TYPE_2D,
+                                VK_FORMAT_R8G8B8A8_SRGB,
+                                VK_IMAGE_ASPECT_COLOR_BIT,
+                                1);
+        roughnessSampler = createTextureSampler();
 
         loadCubemapImage("scenes/env-cube.png", cubemapImage, cubemapImageMemory);
         cubemapImageView = createImageView(cubemapImage,
@@ -750,6 +782,23 @@ private:
                                             albedoSampler,
                                             normalImageView,
                                             normalSampler,
+                                            cubemapImageView,
+                                            cubemapSampler);
+
+        VertexPBR::createDescriptorSets(device,
+                                            pbrPipeline.descriptorSetLayout,
+                                            pbrPipeline.descriptorPool,
+                                            pbrPipeline.descriptorSets,
+                                            static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                            uniformBuffers,
+                                            albedoImageView,
+                                            albedoSampler,
+                                            normalImageView,
+                                            normalSampler,
+                                            metallicImageView,
+                                            metallicSampler,
+                                            roughnessImageView,
+                                            roughnessSampler,
                                             cubemapImageView,
                                             cubemapSampler);
 
@@ -1925,6 +1974,11 @@ private:
                 createVertexBuffer<VertexLambert>(mesh);
 
                 mesh.aabb = getAABB<VertexLambert>(mesh);
+            } else if (matType == Material::Type::PBR) {
+                loadVertices<VertexPBR>(mesh);
+                createVertexBuffer<VertexPBR>(mesh);
+
+                mesh.aabb = getAABB<VertexPBR>(mesh);
             }
 
             createIndexBuffer(mesh);
@@ -2159,17 +2213,19 @@ private:
                         };
                     }
 
+                    // TODO: Create 1x1 texture maps when the material properties just have one value
                     if (obj.count("simple") > 0) {
                         scene.materials.back().type = Material::Type::SIMPLE;
-                    } else if (obj.count("pbr") > 0) {
-                        scene.materials.back().type = Material::Type::PBR;
+                    } else if (obj.count("environment") > 0) {
+                        scene.materials.back().type = Material::Type::ENVIRONMENT;
+                    } else if (obj.count("mirror") > 0) {
+                        scene.materials.back().type = Material::Type::MIRROR;
                     } else if (obj.count("lambertian") > 0) {
                         // TODO: Read in the albedo map
                         scene.materials.back().type = Material::Type::LAMBERTIAN;
-                    } else if (obj.count("mirror") > 0) {
-                        scene.materials.back().type = Material::Type::MIRROR;
-                    } else if (obj.count("environment") > 0) {
-                        scene.materials.back().type = Material::Type::ENVIRONMENT;
+                    } else if (obj.count("pbr") > 0) {
+                        // TODO: Read in all the maps
+                        scene.materials.back().type = Material::Type::PBR;
                     }
                 } else if (sceneType == "ENVIRONMENT") {
                     std::cout << "ENVIRONMENT NODE..." << std::endl;
@@ -2287,14 +2343,18 @@ private:
                 : Material::Type::SIMPLE;
 
             if (args.culling == "none" || frustumIntersectsAABB(frustum, center, halfExtent)) {
-                if (matType == Material::Type::ENVIRONMENT) {
+                if (matType == Material::Type::SIMPLE) {
+                    renderMesh(colorPipeline, commandBuffer, mesh, transform);
+                } else if (matType == Material::Type::ENVIRONMENT) {
                     renderMesh(texturePipeline, commandBuffer, mesh, transform);
                 } else if (matType == Material::Type::MIRROR) {
                     renderMesh(texturePipeline, commandBuffer, mesh, transform);
                 } else if (matType == Material::Type::LAMBERTIAN) {
                     renderMesh(lambertPipeline, commandBuffer, mesh, transform);
+                } else if (matType == Material::Type::PBR) {
+                    renderMesh(pbrPipeline, commandBuffer, mesh, transform);
                 } else { // SIMPLE material
-                    renderMesh(colorPipeline, commandBuffer, mesh, transform);
+                    throw std::runtime_error("Unexpected pipeline type!");
                 }
             }
         }
@@ -3224,6 +3284,16 @@ private:
         vkDestroyImage(device, normalImage, nullptr);
         vkFreeMemory(device, normalImageMemory, nullptr);
 
+        vkDestroySampler(device, metallicSampler, nullptr);
+        vkDestroyImageView(device, metallicImageView, nullptr);
+        vkDestroyImage(device, metallicImage, nullptr);
+        vkFreeMemory(device, metallicImageMemory, nullptr);
+
+        vkDestroySampler(device, roughnessSampler, nullptr);
+        vkDestroyImageView(device, roughnessImageView, nullptr);
+        vkDestroyImage(device, roughnessImage, nullptr);
+        vkFreeMemory(device, roughnessImageMemory, nullptr);
+
         vkDestroySampler(device, cubemapSampler, nullptr);
         vkDestroyImageView(device, cubemapImageView, nullptr);
         vkDestroyImage(device, cubemapImage, nullptr);
@@ -3237,6 +3307,7 @@ private:
         colorPipeline.destroy(device);
         texturePipeline.destroy(device);
         lambertPipeline.destroy(device);
+        pbrPipeline.destroy(device);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
