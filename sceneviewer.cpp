@@ -39,10 +39,17 @@
 #include "attribute.h"
 #include "vertexcolor.h"
 #include "vertextexture.h"
+#include "vertexlambert.h"
 #include "graphics-pipeline.h"
 
 #include "OrbitCamera.h"
 
+/*
+ * NOTES:
+ *
+ * tone mapping: ()
+ * rgbe decoding: (check assignment description and use frexp and ldexp)
+ */
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -214,7 +221,8 @@ struct Mesh {
 
     std::variant<
         std::vector<VertexColor>,
-        std::vector<VertexTexture>
+        std::vector<VertexTexture>,
+        std::vector<VertexLambert>
     > vertices;
 
     std::vector<uint16_t> indices;
@@ -454,6 +462,7 @@ private:
 
     GraphicsPipeline<VertexColor> colorPipeline;
     GraphicsPipeline<VertexTexture> texturePipeline;
+    GraphicsPipeline<VertexLambert> lambertPipeline;
 
     VkCommandPool commandPool;
 
@@ -464,12 +473,22 @@ private:
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
     VkImageView textureImageView;
+    VkSampler textureSampler;
+
+    VkImage albedoImage;
+    VkDeviceMemory albedoImageMemory;
+    VkImageView albedoImageView;
+    VkSampler albedoSampler;
+
+    VkImage normalImage;
+    VkDeviceMemory normalImageMemory;
+    VkImageView normalImageView;
+    VkSampler normalSampler;
 
     VkImage cubemapImage;
     VkDeviceMemory cubemapImageMemory;
     VkImageView cubemapImageView;
-
-    VkSampler textureSampler;
+    VkSampler cubemapSampler;
 
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
@@ -667,7 +686,10 @@ private:
         createUniformBuffers();
 
         createGraphicsPipeline<VertexColor>(colorPipeline, "color");
-        createGraphicsPipeline<VertexTexture>(texturePipeline, "mirror");
+        createGraphicsPipeline<VertexTexture>(texturePipeline, "texture");
+        // TODO; Maybe create a separate pipeline for mirror instead of just using the texture pipeline
+        //createGraphicsPipeline<VertexTexture>(texturePipeline, "mirror");
+        createGraphicsPipeline<VertexLambert>(lambertPipeline, "lambert");
 
         loadTextureImage("textures/texture.jpg", textureImage, textureImageMemory);
         textureImageView = createImageView(textureImage,
@@ -675,6 +697,24 @@ private:
                                 VK_FORMAT_R8G8B8A8_SRGB,
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 1);
+        textureSampler = createTextureSampler();
+
+        loadTextureImage("textures/texture.jpg", albedoImage, albedoImageMemory);
+        albedoImageView = createImageView(albedoImage,
+                                VK_IMAGE_VIEW_TYPE_2D,
+                                VK_FORMAT_R8G8B8A8_SRGB,
+                                VK_IMAGE_ASPECT_COLOR_BIT,
+                                1);
+        albedoSampler = createTextureSampler();
+
+        // TODO: Read the filepath from the scene file instead
+        loadTextureImage("textures/texture.jpg", normalImage, normalImageMemory);
+        normalImageView = createImageView(normalImage,
+                                VK_IMAGE_VIEW_TYPE_2D,
+                                VK_FORMAT_R8G8B8A8_SRGB,
+                                VK_IMAGE_ASPECT_COLOR_BIT,
+                                1);
+        normalSampler = createTextureSampler();
 
         loadCubemapImage("scenes/env-cube.png", cubemapImage, cubemapImageMemory);
         cubemapImageView = createImageView(cubemapImage,
@@ -682,8 +722,7 @@ private:
                                 VK_FORMAT_R8G8B8A8_SRGB,
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 6);
-
-        createTextureSampler();
+        cubemapSampler = createTextureSampler();
 
         VertexColor::createDescriptorSets(device,
                                           colorPipeline.descriptorSetLayout,
@@ -699,7 +738,20 @@ private:
                                             static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
                                             uniformBuffers,
                                             cubemapImageView,
-                                            textureSampler);
+                                            cubemapSampler);
+
+        VertexLambert::createDescriptorSets(device,
+                                            lambertPipeline.descriptorSetLayout,
+                                            lambertPipeline.descriptorPool,
+                                            lambertPipeline.descriptorSets,
+                                            static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                            uniformBuffers,
+                                            albedoImageView,
+                                            albedoSampler,
+                                            normalImageView,
+                                            normalSampler,
+                                            cubemapImageView,
+                                            cubemapSampler);
 
         createCommandBuffers();
 
@@ -1782,7 +1834,7 @@ private:
         return imageView;
     }
 
-    void createTextureSampler() {
+    VkSampler createTextureSampler() {
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -1805,9 +1857,12 @@ private:
         samplerInfo.minLod = 0.0f;
         samplerInfo.maxLod = 9.0f;
 
+        VkSampler sampler;
         vkCheckResult(
-            vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler),
+            vkCreateSampler(device, &samplerInfo, nullptr, &sampler),
             "failed to create texture sampler");
+
+        return sampler;
     }
 
     void loadHeadlessEvents() {
@@ -1860,11 +1915,16 @@ private:
                 createVertexBuffer<VertexColor>(mesh);
 
                 mesh.aabb = getAABB<VertexColor>(mesh);
-            } else {
+            } else if (matType == Material::Type::ENVIRONMENT || matType == Material::Type::MIRROR) {
                 loadVertices<VertexTexture>(mesh);
                 createVertexBuffer<VertexTexture>(mesh);
 
                 mesh.aabb = getAABB<VertexTexture>(mesh);
+            } else if (matType == Material::Type::LAMBERTIAN) {
+                loadVertices<VertexLambert>(mesh);
+                createVertexBuffer<VertexLambert>(mesh);
+
+                mesh.aabb = getAABB<VertexLambert>(mesh);
             }
 
             createIndexBuffer(mesh);
@@ -2104,6 +2164,7 @@ private:
                     } else if (obj.count("pbr") > 0) {
                         scene.materials.back().type = Material::Type::PBR;
                     } else if (obj.count("lambertian") > 0) {
+                        // TODO: Read in the albedo map
                         scene.materials.back().type = Material::Type::LAMBERTIAN;
                     } else if (obj.count("mirror") > 0) {
                         scene.materials.back().type = Material::Type::MIRROR;
@@ -2227,9 +2288,11 @@ private:
 
             if (args.culling == "none" || frustumIntersectsAABB(frustum, center, halfExtent)) {
                 if (matType == Material::Type::ENVIRONMENT) {
-                    renderMesh(texturePipeline, commandBuffer, mesh, transform);\
+                    renderMesh(texturePipeline, commandBuffer, mesh, transform);
                 } else if (matType == Material::Type::MIRROR) {
                     renderMesh(texturePipeline, commandBuffer, mesh, transform);
+                } else if (matType == Material::Type::LAMBERTIAN) {
+                    renderMesh(lambertPipeline, commandBuffer, mesh, transform);
                 } else { // SIMPLE material
                     renderMesh(colorPipeline, commandBuffer, mesh, transform);
                 }
@@ -2245,6 +2308,22 @@ private:
 
     template <typename V>
     void renderMesh(GraphicsPipeline<V>& pipeline, VkCommandBuffer& commandBuffer, const Mesh& mesh, glm::mat4 transform) {
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+
+        VkViewport viewport{};
+        viewport.x = 0;
+        viewport.y = 0;
+        viewport.width = static_cast<float>(swapChainExtent.width);
+        viewport.height = static_cast<float>(swapChainExtent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = { 0, 0 };
+        scissor.extent = swapChainExtent;
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
         vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &transform);
 
         VkBuffer vertexBuffers[] = { mesh.vertexBuffer };
@@ -2298,8 +2377,6 @@ private:
         mesh.indices = {};
 
         std::vector<T>& vertices = std::get<std::vector<T>>(mesh.vertices);
-
-        std::cout << "GOT THE VERTICES" << std::endl;
 
         std::ifstream vertexData;
         vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
@@ -3061,24 +3138,6 @@ private:
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        // TODO: Should bind and render multiple pipelines in one command buffer
-
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, texturePipeline.pipeline);
-
-        VkViewport viewport{};
-        viewport.x = 0;
-        viewport.y = 0;
-        viewport.width = static_cast<float>(swapChainExtent.width);
-        viewport.height = static_cast<float>(swapChainExtent.height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-        VkRect2D scissor{};
-        scissor.offset = { 0, 0 };
-        scissor.extent = swapChainExtent;
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
         renderSceneGraph(commandBuffer, gameScene);
 
         vkCmdEndRenderPass(commandBuffer);
@@ -3151,11 +3210,21 @@ private:
         }
 
         vkDestroySampler(device, textureSampler, nullptr);
-
         vkDestroyImageView(device, textureImageView, nullptr);
         vkDestroyImage(device, textureImage, nullptr);
         vkFreeMemory(device, textureImageMemory, nullptr);
 
+        vkDestroySampler(device, albedoSampler, nullptr);
+        vkDestroyImageView(device, albedoImageView, nullptr);
+        vkDestroyImage(device, albedoImage, nullptr);
+        vkFreeMemory(device, albedoImageMemory, nullptr);
+
+        vkDestroySampler(device, normalSampler, nullptr);
+        vkDestroyImageView(device, normalImageView, nullptr);
+        vkDestroyImage(device, normalImage, nullptr);
+        vkFreeMemory(device, normalImageMemory, nullptr);
+
+        vkDestroySampler(device, cubemapSampler, nullptr);
         vkDestroyImageView(device, cubemapImageView, nullptr);
         vkDestroyImage(device, cubemapImage, nullptr);
         vkFreeMemory(device, cubemapImageMemory, nullptr);
@@ -3167,6 +3236,7 @@ private:
 
         colorPipeline.destroy(device);
         texturePipeline.destroy(device);
+        lambertPipeline.destroy(device);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);

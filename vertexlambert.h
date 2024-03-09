@@ -1,5 +1,5 @@
-#ifndef _VERTEX_TEXTURE_H
-#define _VERTEX_TEXTURE_H
+#ifndef _VERTEX_LAMBERT_H
+#define _VERTEX_LAMBERT_H
 
 #include <array>
 #include <fstream>
@@ -13,7 +13,7 @@
 #include "utils.h"
 #include "attribute.h"
 
-struct VertexTexture {
+struct VertexLambert {
     glm::vec3 pos;
     glm::vec3 normal;
     glm::vec4 tangent;
@@ -24,7 +24,7 @@ struct VertexTexture {
         std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
 
         bindingDescriptions[0].binding = 0;
-        bindingDescriptions[0].stride = sizeof(VertexTexture);
+        bindingDescriptions[0].stride = sizeof(VertexLambert);
         bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
         return bindingDescriptions;
@@ -36,27 +36,27 @@ struct VertexTexture {
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
         attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(VertexTexture, pos);
+        attributeDescriptions[0].offset = offsetof(VertexLambert, pos);
 
         attributeDescriptions[1].binding = 0;
         attributeDescriptions[1].location = 1;
         attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(VertexTexture, normal);
+        attributeDescriptions[1].offset = offsetof(VertexLambert, normal);
 
         attributeDescriptions[2].binding = 0;
         attributeDescriptions[2].location = 2;
         attributeDescriptions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-        attributeDescriptions[2].offset = offsetof(VertexTexture, tangent);
+        attributeDescriptions[2].offset = offsetof(VertexLambert, tangent);
 
         attributeDescriptions[3].binding = 0;
         attributeDescriptions[3].location = 3;
         attributeDescriptions[3].format = VK_FORMAT_R32G32_SFLOAT;
-        attributeDescriptions[3].offset = offsetof(VertexTexture, texCoord);
+        attributeDescriptions[3].offset = offsetof(VertexLambert, texCoord);
 
         attributeDescriptions[4].binding = 0;
         attributeDescriptions[4].location = 4;
         attributeDescriptions[4].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[4].offset = offsetof(VertexTexture, color);
+        attributeDescriptions[4].offset = offsetof(VertexLambert, color);
 
         return attributeDescriptions;
     }
@@ -70,14 +70,28 @@ struct VertexTexture {
         uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         uboLayoutBinding.pImmutableSamplers = nullptr;
 
-        VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-        samplerLayoutBinding.binding = 1;
-        samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerLayoutBinding.descriptorCount = 1;
-        samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        samplerLayoutBinding.pImmutableSamplers = nullptr;
+        VkDescriptorSetLayoutBinding albedoSamplerLayoutBinding{};
+        albedoSamplerLayoutBinding.binding = 1;
+        albedoSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        albedoSamplerLayoutBinding.descriptorCount = 1;
+        albedoSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        albedoSamplerLayoutBinding.pImmutableSamplers = nullptr;
 
-        std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
+        VkDescriptorSetLayoutBinding normalSamplerLayoutBinding{};
+        normalSamplerLayoutBinding.binding = 2;
+        normalSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        normalSamplerLayoutBinding.descriptorCount = 1;
+        normalSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        normalSamplerLayoutBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding cubemapSamplerLayoutBinding{};
+        cubemapSamplerLayoutBinding.binding = 3;
+        cubemapSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        cubemapSamplerLayoutBinding.descriptorCount = 1;
+        cubemapSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        cubemapSamplerLayoutBinding.pImmutableSamplers = nullptr;
+
+        std::array<VkDescriptorSetLayoutBinding, 4> bindings = { uboLayoutBinding, albedoSamplerLayoutBinding, normalSamplerLayoutBinding, cubemapSamplerLayoutBinding };
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());;
@@ -91,11 +105,15 @@ struct VertexTexture {
     static void createDescriptorPool(const VkDevice& device,
                                      VkDescriptorPool& descriptorPool,
                                      uint32_t descriptorCount) {
-        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        std::array<VkDescriptorPoolSize, 4> poolSizes{};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = descriptorCount;
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[1].descriptorCount = descriptorCount;
+        poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[2].descriptorCount = descriptorCount;
+        poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[3].descriptorCount = descriptorCount;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -115,8 +133,12 @@ struct VertexTexture {
                                     uint32_t descriptorCount,
                                     /* pipeline-specific arguments */
                                     std::vector<VkBuffer>& uniformBuffers,
-                                    VkImageView& textureImageView,
-                                    VkSampler& textureSampler) {
+                                    VkImageView& albedoTexImageView,
+                                    VkSampler& albedoTexSampler,
+                                    VkImageView& normalTexImageView,
+                                    VkSampler& normalTexSampler,
+                                    VkImageView& cubemapTexImageView,
+                                    VkSampler& cubemapTexSampler) {
         std::vector<VkDescriptorSetLayout> layouts(descriptorCount, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -135,12 +157,22 @@ struct VertexTexture {
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
 
-            VkDescriptorImageInfo imageInfo{};
-            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = textureImageView;
-            imageInfo.sampler = textureSampler;
+            VkDescriptorImageInfo albedoImageInfo{};
+            albedoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            albedoImageInfo.imageView = albedoTexImageView;
+            albedoImageInfo.sampler = albedoTexSampler;
 
-            std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+            VkDescriptorImageInfo normalImageInfo{};
+            normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            normalImageInfo.imageView = normalTexImageView;
+            normalImageInfo.sampler = normalTexSampler;
+
+            VkDescriptorImageInfo cubemapImageInfo{};
+            cubemapImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            cubemapImageInfo.imageView = cubemapTexImageView;
+            cubemapImageInfo.sampler = cubemapTexSampler;
+
+            std::array<VkWriteDescriptorSet, 4> descriptorWrites{};
 
             descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[0].dstSet = descriptorSets[i];
@@ -159,16 +191,36 @@ struct VertexTexture {
             descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             descriptorWrites[1].descriptorCount = 1;
             descriptorWrites[1].pBufferInfo = nullptr;
-            descriptorWrites[1].pImageInfo = &imageInfo;
+            descriptorWrites[1].pImageInfo = &albedoImageInfo;
             descriptorWrites[1].pTexelBufferView = nullptr;
+
+            descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[2].dstSet = descriptorSets[i];
+            descriptorWrites[2].dstBinding = 2;
+            descriptorWrites[2].dstArrayElement = 0;
+            descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[2].descriptorCount = 1;
+            descriptorWrites[2].pBufferInfo = nullptr;
+            descriptorWrites[2].pImageInfo = &normalImageInfo;
+            descriptorWrites[2].pTexelBufferView = nullptr;
+
+            descriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[3].dstSet = descriptorSets[i];
+            descriptorWrites[3].dstBinding = 3;
+            descriptorWrites[3].dstArrayElement = 0;
+            descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[3].descriptorCount = 1;
+            descriptorWrites[3].pBufferInfo = nullptr;
+            descriptorWrites[3].pImageInfo = &cubemapImageInfo;
+            descriptorWrites[3].pTexelBufferView = nullptr;
 
             vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()),
                 descriptorWrites.data(), 0, nullptr);
         }
     }
 
-    static VertexTexture readFromFile(std::ifstream& vertexData, const std::vector<Attribute>& attributes) {
-        VertexTexture v;
+    static VertexLambert readFromFile(std::ifstream& vertexData, const std::vector<Attribute>& attributes) {
+        VertexLambert v;
 
         for (Attribute attr : attributes) {
             std::size_t size = getFormatSize(attr.format);
@@ -216,4 +268,4 @@ struct VertexTexture {
     }
 };
 
-#endif // _VERTEX_TEXTURE_H
+#endif // _VERTEX_LAMBERT_H
