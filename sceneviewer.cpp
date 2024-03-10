@@ -473,10 +473,15 @@ private:
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
 
+    /*
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
     VkImageView textureImageView;
     VkSampler textureSampler;
+    */
+
+    // temp strings to hold textures paths until I implement a more flexible solution
+    std::string albedoFilepath = "";
 
     VkImage albedoImage;
     VkDeviceMemory albedoImageMemory;
@@ -715,6 +720,7 @@ private:
         createGraphicsPipeline(lambertPipeline, "lambert");
         createGraphicsPipeline(pbrPipeline, "pbr");
 
+        /*/
         loadTextureImage("textures/texture.jpg", textureImage, textureImageMemory);
         textureImageView = createImageView(textureImage,
                                 VK_IMAGE_VIEW_TYPE_2D,
@@ -722,8 +728,9 @@ private:
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 1);
         textureSampler = createTextureSampler();
+        */
 
-        loadTextureImage("textures/texture.jpg", albedoImage, albedoImageMemory);
+        loadTextureImage(albedoFilepath != "" ? albedoFilepath : "textures/texture.jpg", albedoImage, albedoImageMemory);
         albedoImageView = createImageView(albedoImage,
                                 VK_IMAGE_VIEW_TYPE_2D,
                                 VK_FORMAT_R8G8B8A8_SRGB,
@@ -758,8 +765,7 @@ private:
                                 1);
         roughnessSampler = createTextureSampler();
 
-        // TODO: Dynamically determine the filename based on util output
-        loadCubemapImage("scenes/env-cube.png", irradianceCubeImage, irradianceCubeImageMemory);
+        loadCubemapImage(gameScene.environments.size() > 0 ? gameScene.environments[0].radiance.src : "scenes/env-cube.png", irradianceCubeImage, irradianceCubeImageMemory);
         irradianceCubeImageView = createImageView(irradianceCubeImage,
                                 VK_IMAGE_VIEW_TYPE_CUBE,
                                 VK_FORMAT_R8G8B8A8_SRGB,
@@ -777,7 +783,7 @@ private:
         prefilterCubeSampler = createTextureSampler();
 
         // TODO: Read the filepath from the scene file instead
-        loadTextureImage("textures/texture.jpg", brdfLUTImage, brdfLUTImageMemory);
+        loadTextureImage("brdflut.png", brdfLUTImage, brdfLUTImageMemory);
         brdfLUTImageView = createImageView(brdfLUTImage,
                                 VK_IMAGE_VIEW_TYPE_2D,
                                 VK_FORMAT_R8G8B8A8_SRGB,
@@ -2254,8 +2260,12 @@ private:
                     } else if (obj.count("mirror") > 0) {
                         scene.materials.back().type = Material::Type::MIRROR;
                     } else if (obj.count("lambertian") > 0) {
-                        // TODO: Read in the albedo map
                         scene.materials.back().type = Material::Type::LAMBERTIAN;
+
+                        std::map<std::string, JsonLoader::JsonNode*>& lambertianObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["lambertian"]->value);
+                        std::map<std::string, JsonLoader::JsonNode*>& albedoObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(lambertianObj["albedo"]->value);
+
+                        albedoFilepath = std::get<std::string>(albedoObj["src"]->value);
                     } else if (obj.count("pbr") > 0) {
                         // TODO: Read in all the maps
                         scene.materials.back().type = Material::Type::PBR;
@@ -2472,7 +2482,7 @@ private:
         std::vector<T>& vertices = std::get<std::vector<T>>(mesh.vertices);
 
         std::ifstream vertexData;
-        vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
+        vertexData.open(mesh.src, std::ios::binary | std::ios::in);
 
         if (vertexData.fail()) {
             throw std::runtime_error("Failed to load vertices from " + mesh.src + "!");
@@ -3302,10 +3312,12 @@ private:
             cleanupSwapChain();
         }
 
+        /*
         vkDestroySampler(device, textureSampler, nullptr);
         vkDestroyImageView(device, textureImageView, nullptr);
         vkDestroyImage(device, textureImage, nullptr);
         vkFreeMemory(device, textureImageMemory, nullptr);
+        */
 
         vkDestroySampler(device, albedoSampler, nullptr);
         vkDestroyImageView(device, albedoImageView, nullptr);
