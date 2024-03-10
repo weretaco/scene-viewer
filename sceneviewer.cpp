@@ -498,10 +498,20 @@ private:
     VkImageView roughnessImageView;
     VkSampler roughnessSampler;
 
-    VkImage cubemapImage;
-    VkDeviceMemory cubemapImageMemory;
-    VkImageView cubemapImageView;
-    VkSampler cubemapSampler;
+    VkImage irradianceCubeImage;
+    VkDeviceMemory irradianceCubeImageMemory;
+    VkImageView irradianceCubeImageView;
+    VkSampler irradianceCubeSampler;
+
+    VkImage prefilterCubeImage;
+    VkDeviceMemory prefilterCubeImageMemory;
+    VkImageView prefilterCubeImageView;
+    VkSampler prefilterCubeSampler;
+
+    VkImage brdfLUTImage;
+    VkDeviceMemory brdfLUTImageMemory;
+    VkImageView brdfLUTImageView;
+    VkSampler brdfLUTSampler;
 
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
@@ -748,13 +758,32 @@ private:
                                 1);
         roughnessSampler = createTextureSampler();
 
-        loadCubemapImage("scenes/env-cube.png", cubemapImage, cubemapImageMemory);
-        cubemapImageView = createImageView(cubemapImage,
+        // TODO: Dynamically determine the filename based on util output
+        loadCubemapImage("scenes/env-cube.png", irradianceCubeImage, irradianceCubeImageMemory);
+        irradianceCubeImageView = createImageView(irradianceCubeImage,
                                 VK_IMAGE_VIEW_TYPE_CUBE,
                                 VK_FORMAT_R8G8B8A8_SRGB,
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 6);
-        cubemapSampler = createTextureSampler();
+        irradianceCubeSampler = createTextureSampler();
+
+        // TODO: Dynamically determine the filename based on util output
+        loadCubemapImage("scenes/env-cube.png", prefilterCubeImage, prefilterCubeImageMemory);
+        prefilterCubeImageView = createImageView(irradianceCubeImage,
+                                VK_IMAGE_VIEW_TYPE_CUBE,
+                                VK_FORMAT_R8G8B8A8_SRGB,
+                                VK_IMAGE_ASPECT_COLOR_BIT,
+                                6);
+        prefilterCubeSampler = createTextureSampler();
+
+        // TODO: Read the filepath from the scene file instead
+        loadTextureImage("textures/texture.jpg", brdfLUTImage, brdfLUTImageMemory);
+        brdfLUTImageView = createImageView(brdfLUTImage,
+                                VK_IMAGE_VIEW_TYPE_2D,
+                                VK_FORMAT_R8G8B8A8_SRGB,
+                                VK_IMAGE_ASPECT_COLOR_BIT,
+                                1);
+        brdfLUTSampler = createTextureSampler();
 
         VertexColor::createDescriptorSets(device,
                                           colorPipeline.descriptorSetLayout,
@@ -769,8 +798,8 @@ private:
                                             texturePipeline.descriptorSets,
                                             static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
                                             uniformBuffers,
-                                            cubemapImageView,
-                                            cubemapSampler);
+                                            irradianceCubeImageView,
+                                            irradianceCubeSampler);
 
         VertexLambert::createDescriptorSets(device,
                                             lambertPipeline.descriptorSetLayout,
@@ -782,8 +811,8 @@ private:
                                             albedoSampler,
                                             normalImageView,
                                             normalSampler,
-                                            cubemapImageView,
-                                            cubemapSampler);
+                                            irradianceCubeImageView,
+                                            irradianceCubeSampler);
 
         VertexPBR::createDescriptorSets(device,
                                             pbrPipeline.descriptorSetLayout,
@@ -799,8 +828,12 @@ private:
                                             metallicSampler,
                                             roughnessImageView,
                                             roughnessSampler,
-                                            cubemapImageView,
-                                            cubemapSampler);
+                                            irradianceCubeImageView,
+                                            irradianceCubeSampler,
+                                            prefilterCubeImageView,
+                                            prefilterCubeSampler,
+                                            brdfLUTImageView,
+                                            brdfLUTSampler);
 
         createCommandBuffers();
 
@@ -3294,10 +3327,20 @@ private:
         vkDestroyImage(device, roughnessImage, nullptr);
         vkFreeMemory(device, roughnessImageMemory, nullptr);
 
-        vkDestroySampler(device, cubemapSampler, nullptr);
-        vkDestroyImageView(device, cubemapImageView, nullptr);
-        vkDestroyImage(device, cubemapImage, nullptr);
-        vkFreeMemory(device, cubemapImageMemory, nullptr);
+        vkDestroySampler(device, irradianceCubeSampler, nullptr);
+        vkDestroyImageView(device, irradianceCubeImageView, nullptr);
+        vkDestroyImage(device, irradianceCubeImage, nullptr);
+        vkFreeMemory(device, irradianceCubeImageMemory, nullptr);
+
+        vkDestroySampler(device, prefilterCubeSampler, nullptr);
+        vkDestroyImageView(device, prefilterCubeImageView, nullptr);
+        vkDestroyImage(device, prefilterCubeImage, nullptr);
+        vkFreeMemory(device, prefilterCubeImageMemory, nullptr);
+
+        vkDestroySampler(device, brdfLUTSampler, nullptr);
+        vkDestroyImageView(device, brdfLUTImageView, nullptr);
+        vkDestroyImage(device, brdfLUTImage, nullptr);
+        vkFreeMemory(device, brdfLUTImageMemory, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);

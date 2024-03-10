@@ -98,14 +98,28 @@ struct VertexPBR {
         roughnessSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         roughnessSamplerLayoutBinding.pImmutableSamplers = nullptr;
 
-        VkDescriptorSetLayoutBinding cubemapSamplerLayoutBinding{};
-        cubemapSamplerLayoutBinding.binding = 5;
-        cubemapSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        cubemapSamplerLayoutBinding.descriptorCount = 1;
-        cubemapSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        cubemapSamplerLayoutBinding.pImmutableSamplers = nullptr;
+        VkDescriptorSetLayoutBinding irradianceSamplerLayoutBinding{};
+        irradianceSamplerLayoutBinding.binding = 5;
+        irradianceSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        irradianceSamplerLayoutBinding.descriptorCount = 1;
+        irradianceSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        irradianceSamplerLayoutBinding.pImmutableSamplers = nullptr;
 
-        std::array<VkDescriptorSetLayoutBinding, 6> bindings = { uboLayoutBinding, albedoSamplerLayoutBinding, normalSamplerLayoutBinding, metallicSamplerLayoutBinding, roughnessSamplerLayoutBinding, cubemapSamplerLayoutBinding };
+        VkDescriptorSetLayoutBinding prefilterSamplerLayoutBinding{};
+        prefilterSamplerLayoutBinding.binding = 6;
+        prefilterSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        prefilterSamplerLayoutBinding.descriptorCount = 1;
+        prefilterSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        prefilterSamplerLayoutBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding brdfLUTSamplerLayoutBinding{};
+        brdfLUTSamplerLayoutBinding.binding = 7;
+        brdfLUTSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        brdfLUTSamplerLayoutBinding.descriptorCount = 1;
+        brdfLUTSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        brdfLUTSamplerLayoutBinding.pImmutableSamplers = nullptr;
+
+        std::array<VkDescriptorSetLayoutBinding, 8> bindings = { uboLayoutBinding, albedoSamplerLayoutBinding, normalSamplerLayoutBinding, metallicSamplerLayoutBinding, roughnessSamplerLayoutBinding, irradianceSamplerLayoutBinding, prefilterSamplerLayoutBinding, brdfLUTSamplerLayoutBinding };
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());;
@@ -119,7 +133,7 @@ struct VertexPBR {
     static void createDescriptorPool(const VkDevice& device,
                                      VkDescriptorPool& descriptorPool,
                                      uint32_t descriptorCount) {
-        std::array<VkDescriptorPoolSize, 6> poolSizes{};
+        std::array<VkDescriptorPoolSize, 8> poolSizes{};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = descriptorCount;
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -132,6 +146,10 @@ struct VertexPBR {
         poolSizes[4].descriptorCount = descriptorCount;
         poolSizes[5].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[5].descriptorCount = descriptorCount;
+        poolSizes[6].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[6].descriptorCount = descriptorCount;
+        poolSizes[7].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[7].descriptorCount = descriptorCount;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -159,8 +177,12 @@ struct VertexPBR {
                                     VkSampler& metallicTexSampler,
                                     VkImageView& roughnessTexImageView,
                                     VkSampler& roughnessTexSampler,
-                                    VkImageView& cubemapTexImageView,
-                                    VkSampler& cubemapTexSampler) {
+                                    VkImageView& irradianceTexImageView,
+                                    VkSampler& irradianceTexSampler,
+                                    VkImageView& prefilterTexImageView,
+                                    VkSampler& prefilterTexSampler,
+                                    VkImageView& brdfLUTTexImageView,
+                                    VkSampler& brdfLUTTexSampler) {
         std::vector<VkDescriptorSetLayout> layouts(descriptorCount, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -199,12 +221,22 @@ struct VertexPBR {
             roughnessImageInfo.imageView = roughnessTexImageView;
             roughnessImageInfo.sampler = roughnessTexSampler;
 
-            VkDescriptorImageInfo cubemapImageInfo{};
-            cubemapImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            cubemapImageInfo.imageView = cubemapTexImageView;
-            cubemapImageInfo.sampler = cubemapTexSampler;
+            VkDescriptorImageInfo irradianceImageInfo{};
+            irradianceImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            irradianceImageInfo.imageView = irradianceTexImageView;
+            irradianceImageInfo.sampler = irradianceTexSampler;
 
-            std::array<VkWriteDescriptorSet, 6> descriptorWrites{};
+            VkDescriptorImageInfo prefilterImageInfo{};
+            prefilterImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            prefilterImageInfo.imageView = prefilterTexImageView;
+            prefilterImageInfo.sampler = prefilterTexSampler;
+
+            VkDescriptorImageInfo brdfLUTImageInfo{};
+            brdfLUTImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            brdfLUTImageInfo.imageView = brdfLUTTexImageView;
+            brdfLUTImageInfo.sampler = brdfLUTTexSampler;
+
+            std::array<VkWriteDescriptorSet, 8> descriptorWrites{};
 
             descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[0].dstSet = descriptorSets[i];
@@ -263,8 +295,28 @@ struct VertexPBR {
             descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             descriptorWrites[5].descriptorCount = 1;
             descriptorWrites[5].pBufferInfo = nullptr;
-            descriptorWrites[5].pImageInfo = &cubemapImageInfo;
+            descriptorWrites[5].pImageInfo = &irradianceImageInfo;
             descriptorWrites[5].pTexelBufferView = nullptr;
+
+            descriptorWrites[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[6].dstSet = descriptorSets[i];
+            descriptorWrites[6].dstBinding = 6;
+            descriptorWrites[6].dstArrayElement = 0;
+            descriptorWrites[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[6].descriptorCount = 1;
+            descriptorWrites[6].pBufferInfo = nullptr;
+            descriptorWrites[6].pImageInfo = &prefilterImageInfo;
+            descriptorWrites[6].pTexelBufferView = nullptr;
+
+            descriptorWrites[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[7].dstSet = descriptorSets[i];
+            descriptorWrites[7].dstBinding = 7;
+            descriptorWrites[7].dstArrayElement = 0;
+            descriptorWrites[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[7].descriptorCount = 1;
+            descriptorWrites[7].pBufferInfo = nullptr;
+            descriptorWrites[7].pImageInfo = &brdfLUTImageInfo;
+            descriptorWrites[7].pTexelBufferView = nullptr;
 
             vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()),
                 descriptorWrites.data(), 0, nullptr);
