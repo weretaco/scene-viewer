@@ -1,0 +1,45 @@
+ - [DONE] pdate getAABB() to work with arbitrary vertex types
+ - [DONE] Move pipeline definition to its own class
+ -        Maybe create the default simple material (may want to store that as its own field in the scene for convenience)
+ -        Update material indices
+ -        Store the material type on the material rather than the mesh
+           - For meshes, I only check it when rendering, so I easily just look up the material at that time and check the type of that,
+             which I'll have to do anyway for any meshes with the non-default material
+          
+          Next steps:
+          - connect meshes and materials (by fixing indices and looking up materials when rendering meshes)
+          - start actually rendering meshes with different pipelines
+          - maybe write a shader for the skybox, although I'm not sure it's necessary
+          - start implementing rgbe decoding
+
+NEXT NEXT STEPS:
+Properly load a cubemap and copy it into GPU memory (fix createCubemapImage)
+
+I'm already rebinding descriptor sets per mesh. I should change it so I don't have only one descriptor set per pipeline
+I want to create a list of descriptor sets for each material
+
+The descriptor sets are created in Vertex???::createDescriptorSets, but not referenced anywhere else in those classes or inGraphicsPipeline
+Should definitely be possible to make multiple descriptor set groups per pipeline
+
+Each of them should represent a material and be somehow tied to the paterial for each mesh
+
+Associating the various buffers and images with the descriptor sets is an update operation; it doesn't create new "stuff".
+Therefore, we'd want to create multiple arrays of these and switch between them.
+We may as well directly use arrays of VkWriteDescriptorSet objects
+
+Since vkUpdateDescriptorSets executes immediatelly, rather than being recorded in a command buffer, it seems like to maximize
+speed, I should create multiple descriptor sets, one for each material, and then switch between them in the command buffer
+
+Actually, descriptor sets do need to get allocated before being written to
+
+descriptorCount and descriptorSetCount should both be NUM_FRAMES_IN_FLIGHT * NUM_TEXTURES_FOR_MATERIAL
+
+I'll basically have to keep track of the VkImages before creating the descriptor sets.
+I might be able to create a list of VkDescriptorSetLayoutBindings as I parse the scene file
+
+Probably better to keep a set of VkDescriptorImageInfo structs, since they actually reference the image view and sampler
+I can then create the list of VkDescriptorSetLayoutBindings later based on that list, also inserting a reference to the
+uniform buffer at the beginning as a special case. That's not ideal, but should be ok since every one of my shaders has
+the ubo.
+
+bin/viewer --scene env-cube.s72 --physical-device "NVIDIA GeForce RTX 2070 with Max-Q Design" --drawing-size 800 600

@@ -5,6 +5,12 @@
 
 #include <vulkan/vk_enum_string_helper.h>
 
+struct VulkanImage {
+    VkImage image;
+    VkImageView imageView;
+    VkSampler imageSampler;
+};
+
 inline void vkCheckResult(VkResult result, std::string errorMsg) {
     if (result != VK_SUCCESS) {
         throw std::runtime_error(errorMsg + std::string(string_VkResult(result)) + " [" + std::to_string(result) + "]");
