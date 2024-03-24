@@ -109,14 +109,12 @@ struct VertexTexture {
     }
 
     static void createDescriptorSets(const VkDevice& device,
-                                    const VkDescriptorSetLayout& descriptorSetLayout,
-                                    const VkDescriptorPool& descriptorPool,
-                                    std::vector<VkDescriptorSet>& descriptorSets,
-                                    uint32_t descriptorCount,
-                                    /* pipeline-specific arguments */
-                                    std::vector<VkBuffer>& uniformBuffers,
-                                    VkImageView& textureImageView,
-                                    VkSampler& textureSampler) {
+                                     const VkDescriptorSetLayout& descriptorSetLayout,
+                                     const VkDescriptorPool& descriptorPool,
+                                     std::vector<VkDescriptorSet>& descriptorSets,
+                                     uint32_t descriptorCount,
+                                     std::vector<VkBuffer>& uniformBuffers,
+                                     VulkanSampledImage& irradianceCubemapImage) {
         std::vector<VkDescriptorSetLayout> layouts(descriptorCount, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -130,6 +128,8 @@ struct VertexTexture {
             "failed to allocate descriptor sets");
 
         for (size_t i = 0; i < descriptorCount; i++) {
+            std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+
             VkDescriptorBufferInfo bufferInfo{};
             bufferInfo.buffer = uniformBuffers[i];
             bufferInfo.offset = 0;
@@ -137,10 +137,8 @@ struct VertexTexture {
 
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = textureImageView;
-            imageInfo.sampler = textureSampler;
-
-            std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+            imageInfo.imageView = irradianceCubemapImage.imageView;
+            imageInfo.sampler = irradianceCubemapImage.sampler;
 
             descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[0].dstSet = descriptorSets[i];

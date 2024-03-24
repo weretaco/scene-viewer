@@ -127,16 +127,14 @@ struct VertexLambert {
     }
 
     static void createDescriptorSets(const VkDevice& device,
-                                    const VkDescriptorSetLayout& descriptorSetLayout,
-                                    const VkDescriptorPool& descriptorPool,
-                                    std::vector<VkDescriptorSet>& descriptorSets,
-                                    uint32_t descriptorCount,
-                                    /* pipeline-specific arguments */
-                                    std::vector<VkBuffer>& uniformBuffers,
-                                    VulkanSampledImage& normalImage,
-                                    VulkanSampledImage& albedoImage,
-                                    VkImageView& cubemapTexImageView,
-                                    VkSampler& cubemapTexSampler) {
+                                     const VkDescriptorSetLayout& descriptorSetLayout,
+                                     const VkDescriptorPool& descriptorPool,
+                                     std::vector<VkDescriptorSet>& descriptorSets,
+                                     uint32_t descriptorCount,
+                                     std::vector<VkBuffer>& uniformBuffers,
+                                     VulkanSampledImage& normalImage,
+                                     VulkanSampledImage& albedoImage,
+                                     VulkanSampledImage& irradianceCubemapImage) {
         std::vector<VkDescriptorSetLayout> layouts(descriptorCount, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -150,6 +148,8 @@ struct VertexLambert {
             "failed to allocate descriptor sets");
 
         for (size_t i = 0; i < descriptorCount; i++) {
+            std::array<VkWriteDescriptorSet, 4> descriptorWrites{};
+
             VkDescriptorBufferInfo bufferInfo{};
             bufferInfo.buffer = uniformBuffers[i];
             bufferInfo.offset = 0;
@@ -167,10 +167,8 @@ struct VertexLambert {
 
             VkDescriptorImageInfo cubemapImageInfo{};
             cubemapImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            cubemapImageInfo.imageView = cubemapTexImageView;
-            cubemapImageInfo.sampler = cubemapTexSampler;
-
-            std::array<VkWriteDescriptorSet, 4> descriptorWrites{};
+            cubemapImageInfo.imageView = irradianceCubemapImage.imageView;
+            cubemapImageInfo.sampler = irradianceCubemapImage.sampler;
 
             descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[0].dstSet = descriptorSets[i];

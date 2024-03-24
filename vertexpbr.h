@@ -163,21 +163,18 @@ struct VertexPBR {
     }
 
     static void createDescriptorSets(const VkDevice& device,
-                                    const VkDescriptorSetLayout& descriptorSetLayout,
-                                    const VkDescriptorPool& descriptorPool,
-                                    std::vector<VkDescriptorSet>& descriptorSets,
-                                    uint32_t descriptorCount,
-                                    /* pipeline-specific arguments */
-                                    std::vector<VkBuffer>& uniformBuffers,
-                                    VulkanSampledImage& normalImage,
-                                    VulkanSampledImage& albedoImage,
-                                    VulkanSampledImage& metallicImage,
-                                    VulkanSampledImage& roughnessImage,
-                                    VkImageView& irradianceTexImageView,
-                                    VkSampler& irradianceTexSampler,
-                                    VkImageView& prefilterTexImageView,
-                                    VkSampler& prefilterTexSampler,
-                                    VulkanSampledImage& brdfLUTImage) {
+                                     const VkDescriptorSetLayout& descriptorSetLayout,
+                                     const VkDescriptorPool& descriptorPool,
+                                     std::vector<VkDescriptorSet>& descriptorSets,
+                                     uint32_t descriptorCount,
+                                     std::vector<VkBuffer>& uniformBuffers,
+                                     VulkanSampledImage& normalImage,
+                                     VulkanSampledImage& albedoImage,
+                                     VulkanSampledImage& metallicImage,
+                                     VulkanSampledImage& roughnessImage,
+                                     VulkanSampledImage& irradianceCubemapImage,
+                                     VulkanSampledImage& prefilterCubemapImage,
+                                     VulkanSampledImage& brdfLUTImage) {
         std::vector<VkDescriptorSetLayout> layouts(descriptorCount, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -191,6 +188,8 @@ struct VertexPBR {
             "failed to allocate descriptor sets");
 
         for (size_t i = 0; i < descriptorCount; i++) {
+            std::array<VkWriteDescriptorSet, 8> descriptorWrites{};
+
             VkDescriptorBufferInfo bufferInfo{};
             bufferInfo.buffer = uniformBuffers[i];
             bufferInfo.offset = 0;
@@ -218,20 +217,18 @@ struct VertexPBR {
 
             VkDescriptorImageInfo irradianceImageInfo{};
             irradianceImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            irradianceImageInfo.imageView = irradianceTexImageView;
-            irradianceImageInfo.sampler = irradianceTexSampler;
+            irradianceImageInfo.imageView = irradianceCubemapImage.imageView;
+            irradianceImageInfo.sampler = irradianceCubemapImage.sampler;
 
             VkDescriptorImageInfo prefilterImageInfo{};
             prefilterImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            prefilterImageInfo.imageView = prefilterTexImageView;
-            prefilterImageInfo.sampler = prefilterTexSampler;
+            prefilterImageInfo.imageView = prefilterCubemapImage.imageView;
+            prefilterImageInfo.sampler = prefilterCubemapImage.sampler;
 
             VkDescriptorImageInfo brdfLUTImageInfo{};
             brdfLUTImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             brdfLUTImageInfo.imageView = brdfLUTImage.imageView;
             brdfLUTImageInfo.sampler = brdfLUTImage.sampler;
-
-            std::array<VkWriteDescriptorSet, 8> descriptorWrites{};
 
             descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[0].dstSet = descriptorSets[i];

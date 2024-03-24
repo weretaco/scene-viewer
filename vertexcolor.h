@@ -88,12 +88,11 @@ struct VertexColor {
     }
 
     static void createDescriptorSets(const VkDevice& device,
-                                    const VkDescriptorSetLayout& descriptorSetLayout,
-                                    const VkDescriptorPool& descriptorPool,
-                                    std::vector<VkDescriptorSet>& descriptorSets,
-                                    uint32_t descriptorCount,
-                                    /* pipeline-specific arguments */
-                                    std::vector<VkBuffer>& uniformBuffers) {
+                                     const VkDescriptorSetLayout& descriptorSetLayout,
+                                     const VkDescriptorPool& descriptorPool,
+                                     std::vector<VkDescriptorSet>& descriptorSets,
+                                     uint32_t descriptorCount,
+                                     std::vector<VkBuffer>& uniformBuffers) {
         std::vector<VkDescriptorSetLayout> layouts(descriptorCount, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -107,12 +106,12 @@ struct VertexColor {
             "failed to allocate descriptor sets");
 
         for (size_t i = 0; i < descriptorCount; i++) {
+            std::array<VkWriteDescriptorSet, 1> descriptorWrites{};
+
             VkDescriptorBufferInfo bufferInfo{};
             bufferInfo.buffer = uniformBuffers[i];
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
-
-            std::array<VkWriteDescriptorSet, 1> descriptorWrites{};
 
             descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[0].dstSet = descriptorSets[i];

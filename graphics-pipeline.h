@@ -13,7 +13,6 @@ public:
 
     VkDescriptorSetLayout descriptorSetLayout;
     VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSet> descriptorSets;
 
     void destroy(VkDevice device) {
         vkDestroyPipeline(device, pipeline, nullptr);
