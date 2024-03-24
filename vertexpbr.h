@@ -169,20 +169,15 @@ struct VertexPBR {
                                     uint32_t descriptorCount,
                                     /* pipeline-specific arguments */
                                     std::vector<VkBuffer>& uniformBuffers,
-                                    VkImageView& albedoTexImageView,
-                                    VkSampler& albedoTexSampler,
-                                    VkImageView& normalTexImageView,
-                                    VkSampler& normalTexSampler,
-                                    VkImageView& metallicTexImageView,
-                                    VkSampler& metallicTexSampler,
-                                    VkImageView& roughnessTexImageView,
-                                    VkSampler& roughnessTexSampler,
+                                    VulkanSampledImage& normalImage,
+                                    VulkanSampledImage& albedoImage,
+                                    VulkanSampledImage& metallicImage,
+                                    VulkanSampledImage& roughnessImage,
                                     VkImageView& irradianceTexImageView,
                                     VkSampler& irradianceTexSampler,
                                     VkImageView& prefilterTexImageView,
                                     VkSampler& prefilterTexSampler,
-                                    VkImageView& brdfLUTTexImageView,
-                                    VkSampler& brdfLUTTexSampler) {
+                                    VulkanSampledImage& brdfLUTImage) {
         std::vector<VkDescriptorSetLayout> layouts(descriptorCount, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -201,25 +196,25 @@ struct VertexPBR {
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
 
-            VkDescriptorImageInfo albedoImageInfo{};
-            albedoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            albedoImageInfo.imageView = albedoTexImageView;
-            albedoImageInfo.sampler = albedoTexSampler;
-
             VkDescriptorImageInfo normalImageInfo{};
             normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            normalImageInfo.imageView = normalTexImageView;
-            normalImageInfo.sampler = normalTexSampler;
+            normalImageInfo.imageView = normalImage.imageView;
+            normalImageInfo.sampler = normalImage.sampler;
+
+            VkDescriptorImageInfo albedoImageInfo{};
+            albedoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            albedoImageInfo.imageView = albedoImage.imageView;
+            albedoImageInfo.sampler = albedoImage.sampler;
 
             VkDescriptorImageInfo metallicImageInfo{};
             metallicImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            metallicImageInfo.imageView = metallicTexImageView;
-            metallicImageInfo.sampler = metallicTexSampler;
+            metallicImageInfo.imageView = metallicImage.imageView;
+            metallicImageInfo.sampler = metallicImage.sampler;
 
             VkDescriptorImageInfo roughnessImageInfo{};
             roughnessImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            roughnessImageInfo.imageView = roughnessTexImageView;
-            roughnessImageInfo.sampler = roughnessTexSampler;
+            roughnessImageInfo.imageView = roughnessImage.imageView;
+            roughnessImageInfo.sampler = roughnessImage.sampler;
 
             VkDescriptorImageInfo irradianceImageInfo{};
             irradianceImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -233,8 +228,8 @@ struct VertexPBR {
 
             VkDescriptorImageInfo brdfLUTImageInfo{};
             brdfLUTImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            brdfLUTImageInfo.imageView = brdfLUTTexImageView;
-            brdfLUTImageInfo.sampler = brdfLUTTexSampler;
+            brdfLUTImageInfo.imageView = brdfLUTImage.imageView;
+            brdfLUTImageInfo.sampler = brdfLUTImage.sampler;
 
             std::array<VkWriteDescriptorSet, 8> descriptorWrites{};
 

@@ -40,6 +40,6 @@
 {
 	"type":"ENVIRONMENT",
 	"name":"environment",
-	"radiance": {"src":"env-cube.png", "type":"cube", "format":"rgbe"}
+	"radiance": {"src":"scenes/env-cube.png", "type":"cube", "format":"rgbe"}
 }
 ]

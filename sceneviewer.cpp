@@ -29,6 +29,7 @@
 #include "glm/gtx/quaternion.hpp"
 #include "glm/gtx/string_cast.hpp"
 #include "glm/gtc/matrix_inverse.hpp"
+#include <glm/gtx/io.hpp>
 
 #include "rg_WindowManager.h"
 
@@ -133,9 +134,9 @@ struct Node {
     void print() {
         std::cout << "Name: " << name << std::endl;
 
-        std::cout << "Translation: " << glm::to_string(translation) << std::endl;
-        std::cout << "Rotation: " << glm::to_string(rotation) << std::endl;
-        std::cout << "Scale: " << glm::to_string(scale) << std::endl;
+        std::cout << "Translation: " << translation << std::endl;
+        std::cout << "Rotation: " << rotation << std::endl;
+        std::cout << "Scale: " << scale << std::endl;
 
         std::cout << "Children: ";
         for (uint16_t child : children) {
@@ -153,8 +154,12 @@ struct Node {
     }
 };
 
+template <typename T>
 struct Texture {
-    std::string src;
+    enum class SrcType {
+        File,
+        Value
+    };
     enum class Type {
         Tex2D,
         TexCube
@@ -163,37 +168,114 @@ struct Texture {
         Linear,
         RGBE
     };
+    SrcType srcType;
     Type type;
     Format format;
-};
-
-template <typename T>
-struct MaterialProp {
-    enum class Type {
-        VALUE,
-        SRC
-    };
     std::variant<
         T,
         std::string
-    > value;
-    Type type;
+    > src;
+
+    void print() {
+        std::cout << std::endl << "Texture Info" << std::endl;
+        std::cout << "Type: " << static_cast<typename std::underlying_type<Type>::type>(type) << std::endl;
+        std::cout << "Format: " << static_cast<typename std::underlying_type<Format>::type>(format) << std::endl;
+
+        if (srcType == SrcType::File) {
+            std::cout << "Src: " << std::get<std::string>(src) << std::endl;
+        } else {
+            std::cout << "Src: " << std::get<T>(src) << std::endl;
+        }
+    }
 };
 
+template <class T>
+T parseValueFromJson(JsonLoader::JsonNode& json) {
+}
+
+template <>
+glm::vec3 parseValueFromJson(JsonLoader::JsonNode& json) {
+    if (json.type == JsonLoader::JsonNode::Type::ARRAY) {
+        std::vector<JsonLoader::JsonNode*>& jsonArray = *std::get<std::vector<JsonLoader::JsonNode*>*>(json.value);
+
+        return {
+            std::get<float>(jsonArray[0]->value),
+            std::get<float>(jsonArray[1]->value),
+            std::get<float>(jsonArray[2]->value)
+        };
+    } else {
+        throw std::runtime_error("Trying to parse a vec3 from a non-ARRAY json node");
+    }
+
+    return {};
+}
+
+template <>
+float parseValueFromJson(JsonLoader::JsonNode& json) {
+    if (json.type == JsonLoader::JsonNode::Type::NUMBER) {
+        return std::get<float>(json.value);
+    } else {
+        throw std::runtime_error("Trying to parse a float from a non-NUMBER json node");
+    }
+}
+
+template <typename T>
+Texture<T> parseTextureFromJson(std::map<std::string, JsonLoader::JsonNode*>& json, std::string textureName, T defaultValue) {
+    if (json.count(textureName) > 0) {
+        // check if the json specifies a filepath or a constant value
+
+        if (json[textureName]->type == JsonLoader::JsonNode::Type::OBJECT) {
+            std::map<std::string, JsonLoader::JsonNode*>& jsonObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(json[textureName]->value);
+
+            std::string type = jsonObj.count("type") > 0
+                ? std::get<std::string>(jsonObj["type"]->value)
+                : "";
+            std::string format = jsonObj.count("format") > 0
+                ? std::get<std::string>(jsonObj["format"]->value)
+                : "";
+
+            return Texture<T>{
+                Texture<T>::SrcType::File,
+                type == "cube"
+                    ? Texture<T>::Type::TexCube
+                    : Texture<T>::Type::Tex2D,
+                format == "rgbe"
+                    ? Texture<T>::Format::RGBE
+                    : Texture<T>::Format::Linear,
+                std::get<std::string>(jsonObj["src"]->value)
+            };
+        } else {
+            return Texture<T>{
+                Texture<T>::SrcType::Value,
+                Texture<T>::Type::Tex2D,
+                Texture<T>::Format::Linear,
+                parseValueFromJson<T>(*json[textureName])
+            };
+        }
+    } else {
+        return Texture<T>{
+            Texture<T>::SrcType::Value,
+            Texture<T>::Type::Tex2D,
+            Texture<T>::Format::Linear,
+            defaultValue
+        };
+    }
+}
+
 struct PbrProps {
-    MaterialProp<glm::vec3> albedo;
-    MaterialProp<float> roughness;
-    MaterialProp<float> metalness;
+    Texture<glm::vec3> albedo;
+    Texture<float> roughness;
+    Texture<float> metalness;
 };
 
 struct LambertianProps {
-    MaterialProp<glm::vec3> baseColor;
+    Texture<glm::vec3> albedo;
 };
 
 struct Material {
     std::string name;
-    std::optional<Texture> normalMap;
-    std::optional<Texture> displacementMap;
+    Texture<glm::vec3> normalMap;
+    Texture<float> displacementMap;
 
     enum class Type {
         PBR,
@@ -208,6 +290,20 @@ struct Material {
         std::monostate
     > value;
     Type type;
+
+    void print() {
+        std::cout << std::endl << "Material Name: " << name << std::endl;
+        normalMap.print();
+        displacementMap.print();
+
+        if (type == Type::LAMBERTIAN) {
+            std::get<LambertianProps>(value).albedo.print();
+        } else if (type == Type::PBR) {
+            std::get<PbrProps>(value).albedo.print();
+            std::get<PbrProps>(value).roughness.print();
+            std::get<PbrProps>(value).metalness.print();
+        }
+    }
 };
 
 struct Mesh {
@@ -278,7 +374,7 @@ struct Camera {
         std::cout << "Vfov: " << vfov << std::endl;
         std::cout << "Near: " << near << std::endl;
         std::cout << "Far: " << far << std::endl;
-        std::cout << "View Mat: " << glm::to_string(viewMat) << std::endl;
+        std::cout << "View Mat: " << viewMat << std::endl;
     }
 };
 
@@ -319,7 +415,45 @@ struct Animation {
 
 struct Environment {
     std::string name;
-    Texture radiance;
+    Texture<glm::vec3> radiance;
+};
+
+struct SunLight {
+    float angle;
+    float strength;
+};
+
+struct SphereLight {
+    float radius;
+    float power;
+    std::optional<float> limit;
+};
+
+struct SpotLight {
+    float radius;
+    float power;
+    std::optional<float> limit;
+    float fov;
+    float blend;
+};
+
+struct Light {
+    std::string name;
+    glm::vec3 tint; // default to <1, 1, 1>
+    uint16_t shadow; // default to 0
+
+    enum class Type {
+        SUN,
+        SPHERE,
+        SPOT
+    };
+    std::variant<
+        SunLight,
+        SphereLight,
+        SpotLight,
+        std::monostate
+    > value;
+    Type type;
 };
 
 struct Scene {
@@ -330,7 +464,10 @@ struct Scene {
     std::vector<Animation> anims;
     std::vector<Material> materials;
     std::vector<Environment> environments;
+    std::vector<Light> lights;
     std::vector<uint16_t> roots;
+
+    std::vector<VulkanSampledImage> vulkanImages;
 
     // maps indices of JSON nodes to the index of the corresponding struct in one of the arrays of the Scene object
     // EXAMPLE: If the first mesh is at index 5 in the JSON array, then typeIndices[5] == 0.
@@ -469,39 +606,14 @@ private:
 
     VkCommandPool commandPool;
 
-    VkImage depthImage;
-    VkDeviceMemory depthImageMemory;
-    VkImageView depthImageView;
-
-    /*
-    VkImage textureImage;
-    VkDeviceMemory textureImageMemory;
-    VkImageView textureImageView;
-    VkSampler textureSampler;
-    */
-
     // temp strings to hold textures paths until I implement a more flexible solution
     std::string albedoFilepath = "";
 
-    VkImage albedoImage;
-    VkDeviceMemory albedoImageMemory;
-    VkImageView albedoImageView;
-    VkSampler albedoSampler;
-
-    VkImage normalImage;
-    VkDeviceMemory normalImageMemory;
-    VkImageView normalImageView;
-    VkSampler normalSampler;
-
-    VkImage metallicImage;
-    VkDeviceMemory metallicImageMemory;
-    VkImageView metallicImageView;
-    VkSampler metallicSampler;
-
-    VkImage roughnessImage;
-    VkDeviceMemory roughnessImageMemory;
-    VkImageView roughnessImageView;
-    VkSampler roughnessSampler;
+    VulkanImage depthVkImage;
+    VulkanSampledImage normalVkImage;
+    VulkanSampledImage albedoVkImage;
+    VulkanSampledImage metallicVkImage;
+    VulkanSampledImage roughnessVkImage;
 
     VkImage irradianceCubeImage;
     VkDeviceMemory irradianceCubeImageMemory;
@@ -512,11 +624,7 @@ private:
     VkDeviceMemory prefilterCubeImageMemory;
     VkImageView prefilterCubeImageView;
     VkSampler prefilterCubeSampler;
-
-    VkImage brdfLUTImage;
-    VkDeviceMemory brdfLUTImageMemory;
-    VkImageView brdfLUTImageView;
-    VkSampler brdfLUTSampler;
+    VulkanSampledImage brdfLUTVkImage;
 
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
@@ -720,52 +828,47 @@ private:
         createGraphicsPipeline(lambertPipeline, "lambert");
         createGraphicsPipeline(pbrPipeline, "pbr");
 
-        /*/
-        loadTextureImage("textures/texture.jpg", textureImage, textureImageMemory);
-        textureImageView = createImageView(textureImage,
+        // TODO: Read the filepath from the scene file instead
+        createTextureImage("textures/texture.jpg", normalVkImage);
+        normalVkImage.imageView = createImageView(normalVkImage.image,
                                 VK_IMAGE_VIEW_TYPE_2D,
                                 VK_FORMAT_R8G8B8A8_SRGB,
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 1);
-        textureSampler = createTextureSampler();
-        */
+        normalVkImage.sampler = createTextureSampler();
 
-        loadTextureImage(albedoFilepath != "" ? albedoFilepath : "textures/texture.jpg", albedoImage, albedoImageMemory);
-        albedoImageView = createImageView(albedoImage,
+        createTextureImage(albedoFilepath != "" ? albedoFilepath : "textures/texture.jpg", albedoVkImage);
+        albedoVkImage.imageView = createImageView(albedoVkImage.image,
                                 VK_IMAGE_VIEW_TYPE_2D,
                                 VK_FORMAT_R8G8B8A8_SRGB,
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 1);
-        albedoSampler = createTextureSampler();
+        albedoVkImage.sampler = createTextureSampler();
 
         // TODO: Read the filepath from the scene file instead
-        loadTextureImage("textures/texture.jpg", normalImage, normalImageMemory);
-        normalImageView = createImageView(normalImage,
+        createTextureImage("textures/texture.jpg", metallicVkImage);
+        metallicVkImage.imageView = createImageView(metallicVkImage.image,
                                 VK_IMAGE_VIEW_TYPE_2D,
                                 VK_FORMAT_R8G8B8A8_SRGB,
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 1);
-        normalSampler = createTextureSampler();
+        metallicVkImage.sampler = createTextureSampler();
 
         // TODO: Read the filepath from the scene file instead
-        loadTextureImage("textures/texture.jpg", metallicImage, metallicImageMemory);
-        metallicImageView = createImageView(metallicImage,
+        createTextureImage("textures/texture.jpg", roughnessVkImage);
+        roughnessVkImage.imageView = createImageView(roughnessVkImage.image,
                                 VK_IMAGE_VIEW_TYPE_2D,
                                 VK_FORMAT_R8G8B8A8_SRGB,
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 1);
-        metallicSampler = createTextureSampler();
+        roughnessVkImage.sampler = createTextureSampler();
 
-        // TODO: Read the filepath from the scene file instead
-        loadTextureImage("textures/texture.jpg", roughnessImage, roughnessImageMemory);
-        roughnessImageView = createImageView(roughnessImage,
-                                VK_IMAGE_VIEW_TYPE_2D,
-                                VK_FORMAT_R8G8B8A8_SRGB,
-                                VK_IMAGE_ASPECT_COLOR_BIT,
-                                1);
-        roughnessSampler = createTextureSampler();
-
-        loadCubemapImage(gameScene.environments.size() > 0 ? gameScene.environments[0].radiance.src : "scenes/env-cube.png", irradianceCubeImage, irradianceCubeImageMemory);
+        createCubemapImage(
+            gameScene.environments.size() > 0
+                ? std::get<std::string>(gameScene.environments[0].radiance.src)
+                : "scenes/env-cube.png",
+            irradianceCubeImage,
+            irradianceCubeImageMemory);
         irradianceCubeImageView = createImageView(irradianceCubeImage,
                                 VK_IMAGE_VIEW_TYPE_CUBE,
                                 VK_FORMAT_R8G8B8A8_SRGB,
@@ -774,7 +877,7 @@ private:
         irradianceCubeSampler = createTextureSampler();
 
         // TODO: Dynamically determine the filename based on util output
-        loadCubemapImage("scenes/env-cube.png", prefilterCubeImage, prefilterCubeImageMemory);
+        createCubemapImage("scenes/env-cube.png", prefilterCubeImage, prefilterCubeImageMemory);
         prefilterCubeImageView = createImageView(irradianceCubeImage,
                                 VK_IMAGE_VIEW_TYPE_CUBE,
                                 VK_FORMAT_R8G8B8A8_SRGB,
@@ -783,13 +886,13 @@ private:
         prefilterCubeSampler = createTextureSampler();
 
         // TODO: Read the filepath from the scene file instead
-        loadTextureImage("brdflut.png", brdfLUTImage, brdfLUTImageMemory);
-        brdfLUTImageView = createImageView(brdfLUTImage,
+        createTextureImage("brdflut.png", brdfLUTVkImage);
+        brdfLUTVkImage.imageView = createImageView(brdfLUTVkImage.image,
                                 VK_IMAGE_VIEW_TYPE_2D,
                                 VK_FORMAT_R8G8B8A8_SRGB,
                                 VK_IMAGE_ASPECT_COLOR_BIT,
                                 1);
-        brdfLUTSampler = createTextureSampler();
+        brdfLUTVkImage.sampler = createTextureSampler();
 
         VertexColor::createDescriptorSets(device,
                                           colorPipeline.descriptorSetLayout,
@@ -813,10 +916,8 @@ private:
                                             lambertPipeline.descriptorSets,
                                             static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
                                             uniformBuffers,
-                                            albedoImageView,
-                                            albedoSampler,
-                                            normalImageView,
-                                            normalSampler,
+                                            normalVkImage,
+                                            albedoVkImage,
                                             irradianceCubeImageView,
                                             irradianceCubeSampler);
 
@@ -826,20 +927,15 @@ private:
                                             pbrPipeline.descriptorSets,
                                             static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
                                             uniformBuffers,
-                                            albedoImageView,
-                                            albedoSampler,
-                                            normalImageView,
-                                            normalSampler,
-                                            metallicImageView,
-                                            metallicSampler,
-                                            roughnessImageView,
-                                            roughnessSampler,
+                                            normalVkImage,
+                                            albedoVkImage,
+                                            metallicVkImage,
+                                            roughnessVkImage,
                                             irradianceCubeImageView,
                                             irradianceCubeSampler,
                                             prefilterCubeImageView,
                                             prefilterCubeSampler,
-                                            brdfLUTImageView,
-                                            brdfLUTSampler);
+                                            brdfLUTVkImage);
 
         createCommandBuffers();
 
@@ -1589,7 +1685,7 @@ private:
         for (size_t i = 0; i < swapChainImageViews.size(); i++) {
             std::array<VkImageView, 2> attachments = {
                 swapChainImageViews[i],
-                depthImageView
+                depthVkImage.imageView
             };
 
             VkFramebufferCreateInfo framebufferInfo{};
@@ -1628,8 +1724,8 @@ private:
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             0,
-            1, depthImage, depthImageMemory);
-        depthImageView = createImageView(depthImage, 
+            1, depthVkImage.image, depthVkImage.memory);
+        depthVkImage.imageView = createImageView(depthVkImage.image, 
                             VK_IMAGE_VIEW_TYPE_2D,
                             depthFormat,
                             VK_IMAGE_ASPECT_DEPTH_BIT,
@@ -1664,10 +1760,71 @@ private:
         throw std::runtime_error("failed to find supported format!");
     }
 
-    void loadTextureImage(std::string filePath, VkImage& texImage, VkDeviceMemory& texMemory) {
+    void createTextureImage(glm::vec3 color, VulkanSampledImage& image) {
+        int texWidth = 1;
+        int texHeight = 1;
+        int texChannels = 4;
+
+        VkDeviceSize imageSize = texWidth * texHeight * texChannels;
+
+        stbi_uc* pixels = (stbi_uc*)malloc(imageSize);
+
+        *(pixels + 0) = (uint8_t)(color.r * 255);
+        *(pixels + 1) = (uint8_t)(color.g * 255);
+        *(pixels + 2) = (uint8_t)(color.b * 255);
+        *(pixels + 3) = 255;
+
+        if (!pixels) {
+            throw std::runtime_error("failed to create texture image with cp;pr " + glm::to_string(color) +  "!");
+        }
+
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+
+        createBuffer(imageSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory);
+
+        void* data;
+        vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+        memcpy(data, pixels, static_cast<size_t>(imageSize));
+        vkUnmapMemory(device, stagingBufferMemory);
+
+        stbi_image_free(pixels);
+
+        createImage(texWidth, texHeight,
+            VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            0,
+            1, image.image, image.memory);
+
+        transitionImageLayout(image.image,
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1);
+
+        copyBufferToImage(stagingBuffer, image.image,
+            static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), 1);
+
+        transitionImageLayout(image.image,
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            1);
+
+        vkDestroyBuffer(device, stagingBuffer, nullptr);
+        vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+
+    void createTextureImage(std::string filePath, VulkanSampledImage& image) {
         int texWidth, texHeight, texChannels;
         stbi_uc* pixels = stbi_load(filePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-        VkDeviceSize imageSize = texWidth * texHeight * 4;
+
+        // use 4 channels even if the source image has, for instance, only 3 (e.g. no alpha)
+        texChannels = 4;
+
+        VkDeviceSize imageSize = texWidth * texHeight * texChannels;
 
         if (!pixels) {
             throw std::runtime_error("failed to load texture image: " + filePath+ "!");
@@ -1693,17 +1850,17 @@ private:
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             0,
-            1, texImage, texMemory);
+            1, image.image, image.memory);
 
-        transitionImageLayout(texImage,
+        transitionImageLayout(image.image,
             VK_FORMAT_R8G8B8A8_SRGB,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             1);
 
-        copyBufferToImage(stagingBuffer, texImage,
+        copyBufferToImage(stagingBuffer, image.image,
             static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), 1);
 
-        transitionImageLayout(texImage,
+        transitionImageLayout(image.image,
             VK_FORMAT_R8G8B8A8_SRGB,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             1);
@@ -1713,7 +1870,7 @@ private:
     }
 
 
-    void loadCubemapImage(std::string filePath, VkImage& texImage, VkDeviceMemory& texMemory) {
+    void createCubemapImage(std::string filePath, VkImage& texImage, VkDeviceMemory& texMemory) {
         int texWidth, texHeight, texChannels;
         stbi_uc* pixels = stbi_load(filePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 
@@ -1721,7 +1878,7 @@ private:
             throw std::runtime_error("failed to load texture image: " + filePath+ "!");
         }
 
-        VkDeviceSize imageSize = texWidth * texHeight * 4;
+        VkDeviceSize imageSize = texWidth * texHeight * texChannels;
         uint32_t numLayers = 6;
         uint32_t layerSize = static_cast<uint32_t>(imageSize) / numLayers;
         texHeight = texHeight / numLayers;
@@ -1993,6 +2150,12 @@ private:
             throw std::runtime_error("No camera named \"" + args.cameraName + "\" was found in the scene");
         }
 
+        std::cout << std::endl << "LISTING SCENE MATERIALS" << std::endl;
+        for (Material& mat : gameScene.materials) {
+            mat.print();
+        }
+        std::cout << std::endl;
+
         for (Mesh& mesh : gameScene.meshes) {
             Material::Type matType = mesh.material.has_value()
                 ? gameScene.materials[mesh.material.value()].type
@@ -2218,39 +2381,10 @@ private:
 
                     scene.materials.back().name = std::get<std::string>(obj["name"]->value);
 
-                    if (obj.count("normalMap") > 0) {
-                        std::map<std::string, JsonLoader::JsonNode*>& jsonObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["normalMap"]->value);
+                    std::cout << "MATERIAL NAME: " << scene.materials.back().name << std::endl;
 
-                        scene.materials.back().normalMap = {
-                            std::get<std::string>(jsonObj["src"]->value),
-                            Texture::Type::Tex2D,
-                            Texture::Format::Linear
-                        };
-                    } else {
-                        // should represent a constant 0,0,1 normal map
-                        scene.materials.back().normalMap = {
-                            "",
-                            Texture::Type::Tex2D,
-                            Texture::Format::Linear
-                        };
-                    }
-
-                    if (obj.count("displacementMap") > 0) {
-                        std::map<std::string, JsonLoader::JsonNode*>& jsonObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["displacementMap"]->value);
-
-                        scene.materials.back().displacementMap = {
-                            std::get<std::string>(jsonObj["src"]->value),
-                            Texture::Type::Tex2D,
-                            Texture::Format::Linear
-                        };
-                    } else {
-                        // should represent a constant 0 displacement map
-                        scene.materials.back().displacementMap = {
-                            "",
-                            Texture::Type::Tex2D,
-                            Texture::Format::Linear
-                        };
-                    }
+                    scene.materials.back().normalMap = parseTextureFromJson<glm::vec3>(obj, "normalMap", { 0.f, 0.f, 1.f });
+                    scene.materials.back().displacementMap = parseTextureFromJson<float>(obj, "displacementMap", 0.f);
 
                     // TODO: Create 1x1 texture maps when the material properties just have one value
                     if (obj.count("simple") > 0) {
@@ -2263,13 +2397,26 @@ private:
                         scene.materials.back().type = Material::Type::LAMBERTIAN;
 
                         std::map<std::string, JsonLoader::JsonNode*>& lambertianObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["lambertian"]->value);
-                        std::map<std::string, JsonLoader::JsonNode*>& albedoObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(lambertianObj["albedo"]->value);
 
-                        albedoFilepath = std::get<std::string>(albedoObj["src"]->value);
+                        scene.materials.back().value = LambertianProps {
+                            parseTextureFromJson<glm::vec3>(lambertianObj, "albedo", { 1.f, 1.f, 1.f })
+                        };
+
+                        // temp, albedoFilepath should eventually get replaced with a more generic solution
+                        albedoFilepath = std::get<std::string>(std::get<LambertianProps>(scene.materials.back().value).albedo.src);
                     } else if (obj.count("pbr") > 0) {
-                        // TODO: Read in all the maps
                         scene.materials.back().type = Material::Type::PBR;
+
+                        std::map<std::string, JsonLoader::JsonNode*>& pbrObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["pbr"]->value);
+
+                        scene.materials.back().value = PbrProps {
+                            parseTextureFromJson<glm::vec3>(pbrObj, "albedo", { 1.f, 1.f, 1.f }),
+                            parseTextureFromJson<float>(pbrObj, "roughness", 1.f),
+                            parseTextureFromJson<float>(pbrObj, "metalness", 0.f)
+                        };
                     }
+
+                    std::cout << "Parsed material" << std::endl;
                 } else if (sceneType == "ENVIRONMENT") {
                     std::cout << "ENVIRONMENT NODE..." << std::endl;
                     scene.typeIndices.push_back(static_cast<uint16_t>(scene.environments.size()));
@@ -2277,19 +2424,25 @@ private:
 
                     std::map<std::string, JsonLoader::JsonNode*>& radianceJson = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["radiance"]->value);
 
-                    std::string texFormat = std::get<std::string>(radianceJson["format"]->value);
                     std::string texType = std::get<std::string>(radianceJson["type"]->value);
+                    std::string texFormat = std::get<std::string>(radianceJson["format"]->value);
 
                     scene.environments.back() = {
                         std::get<std::string>(obj["name"]->value),
                         {
-                            std::get<std::string>(radianceJson["src"]->value),
+                            Texture<glm::vec3>::SrcType::File,
 
-                            // assume only two types and formats
-                            texType == "2D" ? Texture::Type::Tex2D : Texture::Type::TexCube,
-                            texFormat == "linear" ? Texture::Format::Linear : Texture::Format::RGBE
+                            // assume only two values for type and format
+                            texType == "2D" ? Texture<glm::vec3>::Type::Tex2D : Texture<glm::vec3>::Type::TexCube,
+                            texFormat == "linear" ? Texture<glm::vec3>::Format::Linear : Texture<glm::vec3>::Format::RGBE,
+
+                            std::get<std::string>(radianceJson["src"]->value)
                         }
                     };
+                } else if (sceneType == "LIGHT") {
+                    std::cout << "LIGHT NODE..." << std::endl;
+                    scene.typeIndices.push_back(static_cast<uint16_t>(scene.lights.size()));
+                    scene.lights.push_back({});
                 }
             } else {
                 std::cout << "UNEXPECTED JSON TYPE!" << std::endl;
@@ -2482,7 +2635,7 @@ private:
         std::vector<T>& vertices = std::get<std::vector<T>>(mesh.vertices);
 
         std::ifstream vertexData;
-        vertexData.open(mesh.src, std::ios::binary | std::ios::in);
+        vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
 
         if (vertexData.fail()) {
             throw std::runtime_error("Failed to load vertices from " + mesh.src + "!");
@@ -2589,8 +2742,8 @@ private:
         }
 
         if (mesh.name == "Ground") {
-            std::cout << "AABB min: " << glm::to_string(aabb[0]) << std::endl;
-            std::cout << "AABB max: " << glm::to_string(aabb[1]) << std::endl;
+            std::cout << "AABB min: " << aabb[0] << std::endl;
+            std::cout << "AABB max: " << aabb[1] << std::endl;
             std::cout << std::endl;
         }
 
@@ -3100,13 +3253,13 @@ private:
         ubo.view = getViewFromCamera();
         ubo.proj = getProjFromCamera();
 
-        //std::cout << "Projection: " << glm::to_string(ubo.proj) << std::endl;
-        //std::cout << "View: " << glm::to_string(ubo.view) << std::endl;
+        //std::cout << "Projection: " << ubo.proj << std::endl;
+        //std::cout << "View: " << ubo.view << std::endl;
 
         generateFrustum(ubo.proj * ubo.view, ubo.view);
 
-        //std::cout << "Near Plane: " << glm::to_string(frustum.nearPlane) << std::endl;
-        //std::cout << "Far Plane: " << glm::to_string(frustum.farPlane) << std::endl;
+        //std::cout << "Near Plane: " << frustum.nearPlane << std::endl;
+        //std::cout << "Far Plane: " << frustum.farPlane << std::endl;
 
         memcpy(uniformBuffersMapped[curFrame], &ubo, sizeof(ubo));
     }
@@ -3268,9 +3421,7 @@ private:
     }
 
     void cleanupSwapChain() {
-        vkDestroyImageView(device, depthImageView, nullptr);
-        vkDestroyImage(device, depthImage, nullptr);
-        vkFreeMemory(device, depthImageMemory, nullptr);
+        depthVkImage.cleanup(device);
 
         for (VkFramebuffer framebuffer : swapChainFramebuffers) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -3284,9 +3435,7 @@ private:
     }
 
     void cleanupHeadlessSwapChain() {
-        vkDestroyImageView(device, depthImageView, nullptr);
-        vkDestroyImage(device, depthImage, nullptr);
-        vkFreeMemory(device, depthImageMemory, nullptr);
+        depthVkImage.cleanup(device);
 
         for (VkFramebuffer framebuffer : swapChainFramebuffers) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -3312,32 +3461,10 @@ private:
             cleanupSwapChain();
         }
 
-        /*
-        vkDestroySampler(device, textureSampler, nullptr);
-        vkDestroyImageView(device, textureImageView, nullptr);
-        vkDestroyImage(device, textureImage, nullptr);
-        vkFreeMemory(device, textureImageMemory, nullptr);
-        */
-
-        vkDestroySampler(device, albedoSampler, nullptr);
-        vkDestroyImageView(device, albedoImageView, nullptr);
-        vkDestroyImage(device, albedoImage, nullptr);
-        vkFreeMemory(device, albedoImageMemory, nullptr);
-
-        vkDestroySampler(device, normalSampler, nullptr);
-        vkDestroyImageView(device, normalImageView, nullptr);
-        vkDestroyImage(device, normalImage, nullptr);
-        vkFreeMemory(device, normalImageMemory, nullptr);
-
-        vkDestroySampler(device, metallicSampler, nullptr);
-        vkDestroyImageView(device, metallicImageView, nullptr);
-        vkDestroyImage(device, metallicImage, nullptr);
-        vkFreeMemory(device, metallicImageMemory, nullptr);
-
-        vkDestroySampler(device, roughnessSampler, nullptr);
-        vkDestroyImageView(device, roughnessImageView, nullptr);
-        vkDestroyImage(device, roughnessImage, nullptr);
-        vkFreeMemory(device, roughnessImageMemory, nullptr);
+        normalVkImage.cleanup(device);
+        albedoVkImage.cleanup(device);
+        metallicVkImage.cleanup(device);
+        roughnessVkImage.cleanup(device);
 
         vkDestroySampler(device, irradianceCubeSampler, nullptr);
         vkDestroyImageView(device, irradianceCubeImageView, nullptr);
@@ -3349,10 +3476,7 @@ private:
         vkDestroyImage(device, prefilterCubeImage, nullptr);
         vkFreeMemory(device, prefilterCubeImageMemory, nullptr);
 
-        vkDestroySampler(device, brdfLUTSampler, nullptr);
-        vkDestroyImageView(device, brdfLUTImageView, nullptr);
-        vkDestroyImage(device, brdfLUTImage, nullptr);
-        vkFreeMemory(device, brdfLUTImageMemory, nullptr);
+        brdfLUTVkImage.cleanup(device);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);

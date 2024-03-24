@@ -1,6 +1,8 @@
 #ifndef _GRAPHICS_PIPELINE_H
 #define _GRAPHICS_PIPELINE_H
 
+#include <vector>
+
 #include <vulkan/vulkan.h>
 
 template <typename V>

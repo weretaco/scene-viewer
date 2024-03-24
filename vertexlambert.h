@@ -133,10 +133,8 @@ struct VertexLambert {
                                     uint32_t descriptorCount,
                                     /* pipeline-specific arguments */
                                     std::vector<VkBuffer>& uniformBuffers,
-                                    VkImageView& albedoTexImageView,
-                                    VkSampler& albedoTexSampler,
-                                    VkImageView& normalTexImageView,
-                                    VkSampler& normalTexSampler,
+                                    VulkanSampledImage& normalImage,
+                                    VulkanSampledImage& albedoImage,
                                     VkImageView& cubemapTexImageView,
                                     VkSampler& cubemapTexSampler) {
         std::vector<VkDescriptorSetLayout> layouts(descriptorCount, descriptorSetLayout);
@@ -157,15 +155,15 @@ struct VertexLambert {
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
 
-            VkDescriptorImageInfo albedoImageInfo{};
-            albedoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            albedoImageInfo.imageView = albedoTexImageView;
-            albedoImageInfo.sampler = albedoTexSampler;
-
             VkDescriptorImageInfo normalImageInfo{};
             normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            normalImageInfo.imageView = normalTexImageView;
-            normalImageInfo.sampler = normalTexSampler;
+            normalImageInfo.imageView = normalImage.imageView;
+            normalImageInfo.sampler = normalImage.sampler;
+
+            VkDescriptorImageInfo albedoImageInfo{};
+            albedoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            albedoImageInfo.imageView = albedoImage.imageView;
+            albedoImageInfo.sampler = albedoImage.sampler;
 
             VkDescriptorImageInfo cubemapImageInfo{};
             cubemapImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
