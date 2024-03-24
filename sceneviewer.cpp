@@ -64,6 +64,9 @@ const uint32_t HEIGHT = 600;
 
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
+// TODO: Should really figure this out based on the scene path CLI arg
+const std::string SCENE_RESOURCE_PATH = "scenes/";
+
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
 };
@@ -77,6 +80,21 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
+
+template <typename T>
+glm::vec3 getColorFromTextureSrc(Texture<T>& texture) {
+    return glm::vec3();
+}
+
+template <>
+glm::vec3 getColorFromTextureSrc(Texture<glm::vec3>& texture) {
+    return std::get<glm::vec3>(texture.src);
+}
+
+template <>
+glm::vec3 getColorFromTextureSrc(Texture<float>& texture) {
+    return glm::vec3(std::get<float>(texture.src), 0.f, 0.f);
+}
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
@@ -217,9 +235,6 @@ private:
     GraphicsPipeline<VertexPBR> pbrPipeline;
 
     VkCommandPool commandPool;
-
-    // temp strings to hold textures paths until I implement a more flexible solution
-    std::string albedoFilepath = "";
 
     VulkanImage depthVkImage;
 
@@ -1915,9 +1930,6 @@ private:
                         scene.materials.back().value = LambertianProps {
                             parseTextureFromJson<glm::vec3>(lambertianObj, "albedo", { 1.f, 1.f, 1.f })
                         };
-
-                        // temp, albedoFilepath should eventually get replaced with a more generic solution
-                        albedoFilepath = std::get<std::string>(std::get<LambertianProps>(scene.materials.back().value).albedo.src);
                     } else if (obj.count("pbr") > 0) {
                         scene.materials.back().type = Material::Type::PBR;
 
@@ -2203,7 +2215,7 @@ private:
         std::vector<T>& vertices = std::get<std::vector<T>>(mesh.vertices);
 
         std::ifstream vertexData;
-        vertexData.open("scenes/" + mesh.src, std::ios::binary | std::ios::in);
+        vertexData.open(SCENE_RESOURCE_PATH + mesh.src, std::ios::binary | std::ios::in);
 
         if (vertexData.fail()) {
             throw std::runtime_error("Failed to load vertices from " + mesh.src + "!");
@@ -2462,55 +2474,30 @@ private:
     }
 
     void createTexturesForMaterial(Material& mat) {
-        createTextureImage("textures/texture.jpg", mat.normalMap.vkImage);
-        mat.normalMap.vkImage.imageView = createImageView(mat.normalMap.vkImage.image,
-                                            VK_IMAGE_VIEW_TYPE_2D,
-                                            VK_FORMAT_R8G8B8A8_SRGB,
-                                            VK_IMAGE_ASPECT_COLOR_BIT,
-                                            1);
-        mat.normalMap.vkImage.sampler = createTextureSampler();
+        createVkImageForTexture(mat.normalMap);
 
         if (mat.type == Material::Type::LAMBERTIAN) {
-            VulkanSampledImage& albedoVkImage = std::get<LambertianProps>(mat.value).albedo.vkImage;
-
-            createTextureImage(albedoFilepath != "" ? albedoFilepath : "textures/texture.jpg", albedoVkImage);
-            albedoVkImage.imageView = createImageView(albedoVkImage.image,
-                                            VK_IMAGE_VIEW_TYPE_2D,
-                                            VK_FORMAT_R8G8B8A8_SRGB,
-                                            VK_IMAGE_ASPECT_COLOR_BIT,
-                                            1);
-            albedoVkImage.sampler = createTextureSampler();
+            createVkImageForTexture(std::get<LambertianProps>(mat.value).albedo);
         } else if (mat.type == Material::Type::PBR) {
-            VulkanSampledImage& albedoVkImage = std::get<PbrProps>(mat.value).albedo.vkImage;
-            VulkanSampledImage& metalnessVkImage = std::get<PbrProps>(mat.value).roughness.vkImage;
-            VulkanSampledImage& roughnessVkImage = std::get<PbrProps>(mat.value).metalness.vkImage;
-
-            createTextureImage(albedoFilepath != "" ? albedoFilepath : "textures/texture.jpg", albedoVkImage);
-            albedoVkImage.imageView = createImageView(albedoVkImage.image,
-                                            VK_IMAGE_VIEW_TYPE_2D,
-                                            VK_FORMAT_R8G8B8A8_SRGB,
-                                            VK_IMAGE_ASPECT_COLOR_BIT,
-                                            1);
-            albedoVkImage.sampler = createTextureSampler();
-
-            // TODO: Read the filepath from the scene file instead
-            createTextureImage("textures/texture.jpg", metalnessVkImage);
-            metalnessVkImage.imageView = createImageView(metalnessVkImage.image,
-                                            VK_IMAGE_VIEW_TYPE_2D,
-                                            VK_FORMAT_R8G8B8A8_SRGB,
-                                            VK_IMAGE_ASPECT_COLOR_BIT,
-                                            1);
-            metalnessVkImage.sampler = createTextureSampler();
-
-            // TODO: Read the filepath from the scene file instead
-            createTextureImage("textures/texture.jpg", roughnessVkImage);
-            roughnessVkImage.imageView = createImageView(roughnessVkImage.image,
-                                            VK_IMAGE_VIEW_TYPE_2D,
-                                            VK_FORMAT_R8G8B8A8_SRGB,
-                                            VK_IMAGE_ASPECT_COLOR_BIT,
-                                            1);
-            roughnessVkImage.sampler = createTextureSampler();
+            createVkImageForTexture(std::get<PbrProps>(mat.value).albedo);
+            createVkImageForTexture(std::get<PbrProps>(mat.value).metalness);
+            createVkImageForTexture(std::get<PbrProps>(mat.value).roughness);
         }
+    }
+
+    template <typename T>
+    void createVkImageForTexture(Texture<T>& texture) {
+        if (texture.srcType == Texture<T>::SrcType::File) {
+            createTextureImage(SCENE_RESOURCE_PATH + std::get<std::string>(texture.src), texture.vkImage);
+        } else {
+            createTextureImage(getColorFromTextureSrc(texture), texture.vkImage);
+        }
+        texture.vkImage.imageView = createImageView(texture.vkImage.image,
+                                        VK_IMAGE_VIEW_TYPE_2D,
+                                        VK_FORMAT_R8G8B8A8_SRGB,
+                                        VK_IMAGE_ASPECT_COLOR_BIT,
+                                        1);
+        texture.vkImage.sampler = createTextureSampler();
     }
 
     void cleanupMaterialTextures() {
