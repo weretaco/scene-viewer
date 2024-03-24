@@ -1,9 +1,10 @@
 #ifndef _ORBIT_CAMERA_H
 #define _ORBIT_CAMERA_H
 
-#define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
+#define GLM_FORCE_RADIANS
+#define GLM_ENABLE_EXPERIMENTAL
+#include "glm/glm.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 
 class OrbitCamera {

@@ -16,6 +16,7 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <variant>
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -25,20 +26,25 @@
 #define GLM_FORCE_RADIANS
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/glm.hpp"
+#include <glm/gtx/io.hpp>
+#include "glm/gtc/matrix_inverse.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include "glm/gtx/quaternion.hpp"
 #include "glm/gtx/string_cast.hpp"
-#include "glm/gtc/matrix_inverse.hpp"
-#include <glm/gtx/io.hpp>
 
 #include "rg_WindowManager.h"
 
+#include "animation.h"
+#include "attribute.h"
+#include "camera.h"
+#include "driver.h"
+#include "eventloader.h"
+#include "jsonloader.h"
+#include "graphics-pipeline.h"
+#include "material.h"
+#include "scene.h"
 #include "types.h"
 #include "utils.h"
-#include "jsonloader.h"
-#include "eventloader.h"
-#include "attribute.h"
-#include "graphics-pipeline.h"
 #include "vertexcolor.h"
 #include "vertextexture.h"
 #include "vertexlambert.h"
@@ -114,403 +120,6 @@ void DestroyDebugUtilsMessengerEXT(
         func(instance, debugMessenger, pAllocator);
     }
 }
-
-struct Indices {
-    std::string src;
-    uint32_t offset;
-    std::string format;
-};
-
-struct Node {
-    std::string name;
-    glm::vec3 translation;
-    glm::quat rotation;
-    glm::vec3 scale;
-    std::vector<uint16_t> children;
-    std::optional<uint16_t> camera;
-    std::optional<uint16_t> mesh;
-    std::optional<uint16_t> environement;
-
-    void print() {
-        std::cout << "Name: " << name << std::endl;
-
-        std::cout << "Translation: " << translation << std::endl;
-        std::cout << "Rotation: " << rotation << std::endl;
-        std::cout << "Scale: " << scale << std::endl;
-
-        std::cout << "Children: ";
-        for (uint16_t child : children) {
-            std:: cout << child << " ";
-        }
-        std::cout << std::endl;
-
-        if (camera.has_value()) {
-            std::cout << "Camera: " << camera.value() << std::endl;
-        }
-        
-        if (mesh.has_value()) {
-            std::cout << "Mesh: " << mesh.value() << std::endl;
-        }
-    }
-};
-
-template <typename T>
-struct Texture {
-    enum class SrcType {
-        File,
-        Value
-    };
-    enum class Type {
-        Tex2D,
-        TexCube
-    };
-    enum class Format {
-        Linear,
-        RGBE
-    };
-    SrcType srcType;
-    Type type;
-    Format format;
-    std::variant<
-        T,
-        std::string
-    > src;
-
-    void print() {
-        std::cout << std::endl << "Texture Info" << std::endl;
-        std::cout << "Type: " << static_cast<typename std::underlying_type<Type>::type>(type) << std::endl;
-        std::cout << "Format: " << static_cast<typename std::underlying_type<Format>::type>(format) << std::endl;
-
-        if (srcType == SrcType::File) {
-            std::cout << "Src: " << std::get<std::string>(src) << std::endl;
-        } else {
-            std::cout << "Src: " << std::get<T>(src) << std::endl;
-        }
-    }
-};
-
-template <class T>
-T parseValueFromJson(JsonLoader::JsonNode& json) {
-}
-
-template <>
-glm::vec3 parseValueFromJson(JsonLoader::JsonNode& json) {
-    if (json.type == JsonLoader::JsonNode::Type::ARRAY) {
-        std::vector<JsonLoader::JsonNode*>& jsonArray = *std::get<std::vector<JsonLoader::JsonNode*>*>(json.value);
-
-        return {
-            std::get<float>(jsonArray[0]->value),
-            std::get<float>(jsonArray[1]->value),
-            std::get<float>(jsonArray[2]->value)
-        };
-    } else {
-        throw std::runtime_error("Trying to parse a vec3 from a non-ARRAY json node");
-    }
-
-    return {};
-}
-
-template <>
-float parseValueFromJson(JsonLoader::JsonNode& json) {
-    if (json.type == JsonLoader::JsonNode::Type::NUMBER) {
-        return std::get<float>(json.value);
-    } else {
-        throw std::runtime_error("Trying to parse a float from a non-NUMBER json node");
-    }
-}
-
-template <typename T>
-Texture<T> parseTextureFromJson(std::map<std::string, JsonLoader::JsonNode*>& json, std::string textureName, T defaultValue) {
-    if (json.count(textureName) > 0) {
-        // check if the json specifies a filepath or a constant value
-
-        if (json[textureName]->type == JsonLoader::JsonNode::Type::OBJECT) {
-            std::map<std::string, JsonLoader::JsonNode*>& jsonObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(json[textureName]->value);
-
-            std::string type = jsonObj.count("type") > 0
-                ? std::get<std::string>(jsonObj["type"]->value)
-                : "";
-            std::string format = jsonObj.count("format") > 0
-                ? std::get<std::string>(jsonObj["format"]->value)
-                : "";
-
-            return Texture<T>{
-                Texture<T>::SrcType::File,
-                type == "cube"
-                    ? Texture<T>::Type::TexCube
-                    : Texture<T>::Type::Tex2D,
-                format == "rgbe"
-                    ? Texture<T>::Format::RGBE
-                    : Texture<T>::Format::Linear,
-                std::get<std::string>(jsonObj["src"]->value)
-            };
-        } else {
-            return Texture<T>{
-                Texture<T>::SrcType::Value,
-                Texture<T>::Type::Tex2D,
-                Texture<T>::Format::Linear,
-                parseValueFromJson<T>(*json[textureName])
-            };
-        }
-    } else {
-        return Texture<T>{
-            Texture<T>::SrcType::Value,
-            Texture<T>::Type::Tex2D,
-            Texture<T>::Format::Linear,
-            defaultValue
-        };
-    }
-}
-
-struct PbrProps {
-    Texture<glm::vec3> albedo;
-    Texture<float> roughness;
-    Texture<float> metalness;
-};
-
-struct LambertianProps {
-    Texture<glm::vec3> albedo;
-};
-
-struct Material {
-    std::string name;
-
-    std::vector<VkDescriptorSet> descriptorSets;
-
-    Texture<glm::vec3> normalMap;
-    Texture<float> displacementMap;
-
-    enum class Type {
-        PBR,
-        LAMBERTIAN,
-        MIRROR,
-        ENVIRONMENT,
-        SIMPLE
-    };
-    std::variant<
-        PbrProps,
-        LambertianProps,
-        std::monostate
-    > value;
-    Type type;
-
-    void print() {
-        std::cout << std::endl << "Material Name: " << name << std::endl;
-        normalMap.print();
-        displacementMap.print();
-
-        if (type == Type::LAMBERTIAN) {
-            std::get<LambertianProps>(value).albedo.print();
-        } else if (type == Type::PBR) {
-            std::get<PbrProps>(value).albedo.print();
-            std::get<PbrProps>(value).roughness.print();
-            std::get<PbrProps>(value).metalness.print();
-        }
-    }
-};
-
-struct Mesh {
-    std::string name;
-    std::string topology;
-    uint32_t vertexCount;
-    std::string src;
-    uint32_t stride;
-    Indices indicesData;
-    std::vector<Attribute> attributes;
-    std::optional<uint16_t> material;
-
-    std::variant<
-        std::vector<VertexColor>,
-        std::vector<VertexTexture>,
-        std::vector<VertexLambert>,
-        std::vector<VertexPBR>
-    > vertices;
-
-    std::vector<uint16_t> indices;
-
-    VkBuffer vertexBuffer;
-    VkDeviceMemory vertexBufferMemory;
-
-    VkBuffer indexBuffer;
-    VkDeviceMemory indexBufferMemory;
-    std::array<glm::vec3, 2> aabb; // define min point and max point for AABB
-
-    void cleanup(VkDevice device) {
-        vkDestroyBuffer(device, indexBuffer, nullptr);
-        vkFreeMemory(device, indexBufferMemory, nullptr);
-
-        vkDestroyBuffer(device, vertexBuffer, nullptr);
-        vkFreeMemory(device, vertexBufferMemory, nullptr);
-    }
-
-    void print() {
-        std::cout << "Name: " << name << std::endl;
-        std::cout << "Topology: " << topology << std::endl;
-        std::cout << "Vertex Count: " << vertexCount << std::endl;
-        std::cout << "Src: " << src << std::endl;
-        std::cout << "Stride: " << stride << std::endl;
-
-        if (indicesData.src != "") {
-            std::cout << "indices.Src: " << indicesData.src << std::endl;
-            std::cout << "indices.Offset: " << indicesData.offset << std::endl;
-            std::cout << "indices.Format: " << indicesData.format << std::endl;
-        }
-
-        for (Attribute& attr : attributes) {
-            attr.print();
-        }
-    }
-};
-
-// assume perspective camera
-struct Camera {
-    std::string name;
-    float vfov;
-    float aspect;
-    float near;
-    float far;
-    glm::mat4 viewMat;
-
-    void print() {
-        std::cout << "Name: " << name << std::endl;
-        std::cout << "Aspect: " << aspect << std::endl;
-        std::cout << "Vfov: " << vfov << std::endl;
-        std::cout << "Near: " << near << std::endl;
-        std::cout << "Far: " << far << std::endl;
-        std::cout << "View Mat: " << viewMat << std::endl;
-    }
-};
-
-struct Driver {
-    std::string name;
-    uint16_t node;
-    std::string channel;
-    std::vector<float> times;
-    std::vector<float> values;
-    std::string interpolation;
-    uint16_t animIndex;
-
-    void print() {
-        std::cout << "Name: " << name << std::endl;
-
-        std::cout << "Node: " << node << std::endl;
-        std::cout << "Channel: " << channel << std::endl;
-        std::cout << "Interpolation: " << interpolation << std::endl;
-
-        std::cout << "Times: ";
-        for (float time : times) {
-            std::cout << time << " ";
-        }
-        std::cout << std::endl;
-
-        std::cout << "Values: ";
-        for (float value : values) {
-            std::cout << value << " ";
-        }
-        std::cout << std::endl;
-    }
-};
-
-struct Animation {
-    std::chrono::high_resolution_clock::time_point startTime;
-    uint16_t curFrameIndex;
-};
-
-struct Environment {
-    std::string name;
-    Texture<glm::vec3> radiance;
-};
-
-struct SunLight {
-    float angle;
-    float strength;
-};
-
-struct SphereLight {
-    float radius;
-    float power;
-    std::optional<float> limit;
-};
-
-struct SpotLight {
-    float radius;
-    float power;
-    std::optional<float> limit;
-    float fov;
-    float blend;
-};
-
-struct Light {
-    std::string name;
-    glm::vec3 tint; // default to <1, 1, 1>
-    uint16_t shadow; // default to 0
-
-    enum class Type {
-        SUN,
-        SPHERE,
-        SPOT
-    };
-    std::variant<
-        SunLight,
-        SphereLight,
-        SpotLight,
-        std::monostate
-    > value;
-    Type type;
-};
-
-struct Scene {
-    std::vector<Node> nodes;
-    std::vector<Mesh> meshes;
-    std::vector<Camera> cameras;
-    std::vector<Driver> drivers;
-    std::vector<Animation> anims;
-    std::vector<Material> materials;
-    std::vector<Environment> environments;
-    std::vector<Light> lights;
-    std::vector<uint16_t> roots;
-
-    std::vector<VulkanSampledImage> vulkanImages;
-
-    // maps indices of JSON nodes to the index of the corresponding struct in one of the arrays of the Scene object
-    // EXAMPLE: If the first mesh is at index 5 in the JSON array, then typeIndices[5] == 0.
-    //          Similary, if the first node is at index 3, then typeIndices[3] == 0 as well
-    std::vector<uint16_t> typeIndices;
-
-    void print() {
-        std::cout << "Scene:" << std::endl;
-        
-        std::cout << std::endl << "ROOTS:" << std::endl;
-        for (uint16_t& root : roots) {
-            std::cout << root << " ";
-        }
-        std::cout << std::endl;
-
-        std::cout << std::endl << "CAMERAS:" << std::endl;
-        for (Camera& camera : cameras) {
-            camera.print();
-        }
-        std::cout << std::endl;
-
-        std::cout << std::endl << "NODES:" << std::endl;
-        for (Node& node : nodes) {
-            node.print();
-        }
-        std::cout << std::endl;
-
-        std::cout << std::endl << "MESHES:" << std::endl;
-        for (Mesh& mesh : meshes) {
-            mesh.print();
-        }
-        std::cout << std::endl;
-
-        std::cout << std::endl << "DRIVERS:" << std::endl;
-        for (Driver& driver : drivers) {
-            driver.print();
-        }
-        std::cout << std::endl;
-    }
-};
 
 // the vec4 culling planes represent the plane equation: Ax+By+Cz+D = 0, where the vec4 is (A, B, C, D)
 struct Frustum {
@@ -2492,8 +2101,8 @@ private:
                 sceneNode.mesh = scene.typeIndices[sceneNode.mesh.value()];
             }
 
-            if (sceneNode.environement.has_value()) {
-                sceneNode.environement = scene.typeIndices[sceneNode.environement.value()];
+            if (sceneNode.environment.has_value()) {
+                sceneNode.environment = scene.typeIndices[sceneNode.environment.value()];
             }
         }
 
