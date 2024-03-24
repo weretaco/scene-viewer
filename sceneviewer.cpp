@@ -222,10 +222,6 @@ private:
     std::string albedoFilepath = "";
 
     VulkanImage depthVkImage;
-    VulkanSampledImage normalVkImage;
-    VulkanSampledImage albedoVkImage;
-    VulkanSampledImage metallicVkImage;
-    VulkanSampledImage roughnessVkImage;
 
     VulkanSampledImage irradianceCubeVkImage;
     VulkanSampledImage prefilterCubeVkImage;
@@ -417,17 +413,19 @@ private:
         }
 
         createImageViews();
+        createDepthResources();
 
         createCommandPool();
 
         loadSceneGraph();
 
-        createRenderPass();
-        createDepthResources();
-        createFramebuffers();
+        initDefaultMaterial();
 
         createUniformBuffers();
-        createTextures();
+        createMaterialTextures();
+
+        createRenderPass();
+        createFramebuffers();
 
         createGraphicsPipeline(colorPipeline, "color");
         createGraphicsPipeline(texturePipeline, "texture");
@@ -436,51 +434,7 @@ private:
         createGraphicsPipeline(lambertPipeline, "lambert");
         createGraphicsPipeline(pbrPipeline, "pbr");
 
-        // create descriptor sets for all the materials
-        for (Material& mat : gameScene.materials) {
-            if (mat.type == Material::Type::SIMPLE) {
-                VertexColor::createDescriptorSets(device,
-                                                  colorPipeline.descriptorSetLayout,
-                                                  colorPipeline.descriptorPool,
-                                                  mat.descriptorSets,
-                                                  static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
-                                                  uniformBuffers);
-            } else if (mat.type == Material::Type::ENVIRONMENT || mat.type == Material::Type::MIRROR) {
-                VertexTexture::createDescriptorSets(device,
-                                                    texturePipeline.descriptorSetLayout,
-                                                    texturePipeline.descriptorPool,
-                                                    mat.descriptorSets,
-                                                    static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
-                                                    uniformBuffers,
-                                                    irradianceCubeVkImage);
-            } else if (mat.type == Material::Type::LAMBERTIAN) {
-                VertexLambert::createDescriptorSets(device,
-                                                    lambertPipeline.descriptorSetLayout,
-                                                    lambertPipeline.descriptorPool,
-                                                    mat.descriptorSets,
-                                                    static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
-                                                    uniformBuffers,
-                                                    normalVkImage,
-                                                    albedoVkImage,
-                                                    irradianceCubeVkImage);
-            } else if (mat.type == Material::Type::PBR) {
-                VertexPBR::createDescriptorSets(device,
-                                                pbrPipeline.descriptorSetLayout,
-                                                pbrPipeline.descriptorPool,
-                                                mat.descriptorSets,
-                                                static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
-                                                uniformBuffers,
-                                                normalVkImage,
-                                                albedoVkImage,
-                                                metallicVkImage,
-                                                roughnessVkImage,
-                                                irradianceCubeVkImage,
-                                                prefilterCubeVkImage,
-                                                brdfLUTVkImage);
-            }
-        }
-
-        initDefaultMaterial();
+        createMaterialDescriporSets();
 
         createCommandBuffers();
 
@@ -970,74 +924,6 @@ private:
                                         VK_IMAGE_ASPECT_COLOR_BIT,
                                         1);
         }
-    }
-
-    void createTextures() {
-        // TODO: Read the filepath from the scene file instead
-        createTextureImage("textures/texture.jpg", normalVkImage);
-        normalVkImage.imageView = createImageView(normalVkImage.image,
-                                VK_IMAGE_VIEW_TYPE_2D,
-                                VK_FORMAT_R8G8B8A8_SRGB,
-                                VK_IMAGE_ASPECT_COLOR_BIT,
-                                1);
-        normalVkImage.sampler = createTextureSampler();
-
-        createTextureImage(albedoFilepath != "" ? albedoFilepath : "textures/texture.jpg", albedoVkImage);
-        albedoVkImage.imageView = createImageView(albedoVkImage.image,
-                                VK_IMAGE_VIEW_TYPE_2D,
-                                VK_FORMAT_R8G8B8A8_SRGB,
-                                VK_IMAGE_ASPECT_COLOR_BIT,
-                                1);
-        albedoVkImage.sampler = createTextureSampler();
-
-        // TODO: Read the filepath from the scene file instead
-        createTextureImage("textures/texture.jpg", metallicVkImage);
-        metallicVkImage.imageView = createImageView(metallicVkImage.image,
-                                VK_IMAGE_VIEW_TYPE_2D,
-                                VK_FORMAT_R8G8B8A8_SRGB,
-                                VK_IMAGE_ASPECT_COLOR_BIT,
-                                1);
-        metallicVkImage.sampler = createTextureSampler();
-
-        // TODO: Read the filepath from the scene file instead
-        createTextureImage("textures/texture.jpg", roughnessVkImage);
-        roughnessVkImage.imageView = createImageView(roughnessVkImage.image,
-                                VK_IMAGE_VIEW_TYPE_2D,
-                                VK_FORMAT_R8G8B8A8_SRGB,
-                                VK_IMAGE_ASPECT_COLOR_BIT,
-                                1);
-        roughnessVkImage.sampler = createTextureSampler();
-
-        createCubemapImage(
-            gameScene.environments.size() > 0
-                ? std::get<std::string>(gameScene.environments[0].radiance.src)
-                : "scenes/env-cube.png",
-            irradianceCubeVkImage.image,
-            irradianceCubeVkImage.memory);
-        irradianceCubeVkImage.imageView = createImageView(irradianceCubeVkImage.image,
-                                VK_IMAGE_VIEW_TYPE_CUBE,
-                                VK_FORMAT_R8G8B8A8_SRGB,
-                                VK_IMAGE_ASPECT_COLOR_BIT,
-                                6);
-        irradianceCubeVkImage.sampler = createTextureSampler();
-
-        // TODO: Dynamically determine the filename based on util output
-        createCubemapImage("scenes/env-cube.png", prefilterCubeVkImage.image, prefilterCubeVkImage.memory);
-        prefilterCubeVkImage.imageView = createImageView(prefilterCubeVkImage.image,
-                                VK_IMAGE_VIEW_TYPE_CUBE,
-                                VK_FORMAT_R8G8B8A8_SRGB,
-                                VK_IMAGE_ASPECT_COLOR_BIT,
-                                6);
-        prefilterCubeVkImage.sampler = createTextureSampler();
-
-        // TODO: Read the filepath from the scene file instead
-        createTextureImage("brdflut.png", brdfLUTVkImage);
-        brdfLUTVkImage.imageView = createImageView(brdfLUTVkImage.image,
-                                VK_IMAGE_VIEW_TYPE_2D,
-                                VK_FORMAT_R8G8B8A8_SRGB,
-                                VK_IMAGE_ASPECT_COLOR_BIT,
-                                1);
-        brdfLUTVkImage.sampler = createTextureSampler();
     }
 
     void createRenderPass() {
@@ -1816,13 +1702,6 @@ private:
                                               Texture<float>::Format::Linear,
                                               0.f
                                           };
-
-        VertexColor::createDescriptorSets(device,
-                                          colorPipeline.descriptorSetLayout,
-                                          colorPipeline.descriptorPool,
-                                          defaultMaterial.descriptorSets,
-                                          static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
-                                          uniformBuffers);
     }
 
     void constructSceneFromJson(Scene& scene, JsonLoader::JsonNode* json) {
@@ -2139,6 +2018,58 @@ private:
             Node childNode = scene.nodes[child];
 
             generateCameraViewMatsInNode(childNode, transform, scene);
+        }
+    }
+
+    void createMaterialDescriporSets() {
+        VertexColor::createDescriptorSets(device,
+                                          colorPipeline.descriptorSetLayout,
+                                          colorPipeline.descriptorPool,
+                                          defaultMaterial.descriptorSets,
+                                          static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                          uniformBuffers);
+
+        for (Material& mat : gameScene.materials) {
+            if (mat.type == Material::Type::SIMPLE) {
+                VertexColor::createDescriptorSets(device,
+                                                  colorPipeline.descriptorSetLayout,
+                                                  colorPipeline.descriptorPool,
+                                                  mat.descriptorSets,
+                                                  static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                                  uniformBuffers);
+            } else if (mat.type == Material::Type::ENVIRONMENT || mat.type == Material::Type::MIRROR) {
+                VertexTexture::createDescriptorSets(device,
+                                                    texturePipeline.descriptorSetLayout,
+                                                    texturePipeline.descriptorPool,
+                                                    mat.descriptorSets,
+                                                    static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                                    uniformBuffers,
+                                                    irradianceCubeVkImage);
+            } else if (mat.type == Material::Type::LAMBERTIAN) {
+                VertexLambert::createDescriptorSets(device,
+                                                    lambertPipeline.descriptorSetLayout,
+                                                    lambertPipeline.descriptorPool,
+                                                    mat.descriptorSets,
+                                                    static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                                    uniformBuffers,
+                                                    mat.normalMap.vkImage,
+                                                    std::get<LambertianProps>(mat.value).albedo.vkImage,
+                                                    irradianceCubeVkImage);
+            } else if (mat.type == Material::Type::PBR) {
+                VertexPBR::createDescriptorSets(device,
+                                                pbrPipeline.descriptorSetLayout,
+                                                pbrPipeline.descriptorPool,
+                                                mat.descriptorSets,
+                                                static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                                                uniformBuffers,
+                                                mat.normalMap.vkImage,
+                                                std::get<PbrProps>(mat.value).albedo.vkImage,
+                                                std::get<PbrProps>(mat.value).metalness.vkImage,
+                                                std::get<PbrProps>(mat.value).roughness.vkImage,
+                                                irradianceCubeVkImage,
+                                                prefilterCubeVkImage,
+                                                brdfLUTVkImage);
+            }
         }
     }
 
@@ -2485,6 +2416,125 @@ private:
                 uniformBuffers[i], uniformBuffersMemory[i]);
 
             vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
+        }
+    }
+
+    void createMaterialTextures() {
+        createTexturesForMaterial(defaultMaterial);
+
+        for (Material& mat : gameScene.materials) {
+            createTexturesForMaterial(mat);
+        }
+
+        // TODO: Might need to create multiple irrandiance, prefilter, or brdf textures,
+        // but need to do more research to figure that out
+
+        createCubemapImage(
+            gameScene.environments.size() > 0
+                ? std::get<std::string>(gameScene.environments[0].radiance.src)
+                : "scenes/env-cube.png",
+            irradianceCubeVkImage.image,
+            irradianceCubeVkImage.memory);
+        irradianceCubeVkImage.imageView = createImageView(irradianceCubeVkImage.image,
+                                            VK_IMAGE_VIEW_TYPE_CUBE,
+                                            VK_FORMAT_R8G8B8A8_SRGB,
+                                            VK_IMAGE_ASPECT_COLOR_BIT,
+                                            6);
+        irradianceCubeVkImage.sampler = createTextureSampler();
+
+        // TODO: Dynamically determine the filename based on util output
+        createCubemapImage("scenes/env-cube.png", prefilterCubeVkImage.image, prefilterCubeVkImage.memory);
+        prefilterCubeVkImage.imageView = createImageView(prefilterCubeVkImage.image,
+                                            VK_IMAGE_VIEW_TYPE_CUBE,
+                                            VK_FORMAT_R8G8B8A8_SRGB,
+                                            VK_IMAGE_ASPECT_COLOR_BIT,
+                                            6);
+        prefilterCubeVkImage.sampler = createTextureSampler();
+
+        // TODO: Read the filepath from the scene file instead
+        createTextureImage("brdflut.png", brdfLUTVkImage);
+        brdfLUTVkImage.imageView = createImageView(brdfLUTVkImage.image,
+                                            VK_IMAGE_VIEW_TYPE_2D,
+                                            VK_FORMAT_R8G8B8A8_SRGB,
+                                            VK_IMAGE_ASPECT_COLOR_BIT,
+                                            1);
+        brdfLUTVkImage.sampler = createTextureSampler();
+    }
+
+    void createTexturesForMaterial(Material& mat) {
+        createTextureImage("textures/texture.jpg", mat.normalMap.vkImage);
+        mat.normalMap.vkImage.imageView = createImageView(mat.normalMap.vkImage.image,
+                                            VK_IMAGE_VIEW_TYPE_2D,
+                                            VK_FORMAT_R8G8B8A8_SRGB,
+                                            VK_IMAGE_ASPECT_COLOR_BIT,
+                                            1);
+        mat.normalMap.vkImage.sampler = createTextureSampler();
+
+        if (mat.type == Material::Type::LAMBERTIAN) {
+            VulkanSampledImage& albedoVkImage = std::get<LambertianProps>(mat.value).albedo.vkImage;
+
+            createTextureImage(albedoFilepath != "" ? albedoFilepath : "textures/texture.jpg", albedoVkImage);
+            albedoVkImage.imageView = createImageView(albedoVkImage.image,
+                                            VK_IMAGE_VIEW_TYPE_2D,
+                                            VK_FORMAT_R8G8B8A8_SRGB,
+                                            VK_IMAGE_ASPECT_COLOR_BIT,
+                                            1);
+            albedoVkImage.sampler = createTextureSampler();
+        } else if (mat.type == Material::Type::PBR) {
+            VulkanSampledImage& albedoVkImage = std::get<PbrProps>(mat.value).albedo.vkImage;
+            VulkanSampledImage& metalnessVkImage = std::get<PbrProps>(mat.value).roughness.vkImage;
+            VulkanSampledImage& roughnessVkImage = std::get<PbrProps>(mat.value).metalness.vkImage;
+
+            createTextureImage(albedoFilepath != "" ? albedoFilepath : "textures/texture.jpg", albedoVkImage);
+            albedoVkImage.imageView = createImageView(albedoVkImage.image,
+                                            VK_IMAGE_VIEW_TYPE_2D,
+                                            VK_FORMAT_R8G8B8A8_SRGB,
+                                            VK_IMAGE_ASPECT_COLOR_BIT,
+                                            1);
+            albedoVkImage.sampler = createTextureSampler();
+
+            // TODO: Read the filepath from the scene file instead
+            createTextureImage("textures/texture.jpg", metalnessVkImage);
+            metalnessVkImage.imageView = createImageView(metalnessVkImage.image,
+                                            VK_IMAGE_VIEW_TYPE_2D,
+                                            VK_FORMAT_R8G8B8A8_SRGB,
+                                            VK_IMAGE_ASPECT_COLOR_BIT,
+                                            1);
+            metalnessVkImage.sampler = createTextureSampler();
+
+            // TODO: Read the filepath from the scene file instead
+            createTextureImage("textures/texture.jpg", roughnessVkImage);
+            roughnessVkImage.imageView = createImageView(roughnessVkImage.image,
+                                            VK_IMAGE_VIEW_TYPE_2D,
+                                            VK_FORMAT_R8G8B8A8_SRGB,
+                                            VK_IMAGE_ASPECT_COLOR_BIT,
+                                            1);
+            roughnessVkImage.sampler = createTextureSampler();
+        }
+    }
+
+    void cleanupMaterialTextures() {
+        cleanupTexturesForMaterial(defaultMaterial);
+
+        for (Material& mat : gameScene.materials) {
+            cleanupTexturesForMaterial(mat);
+        }
+
+        irradianceCubeVkImage.cleanup(device);
+        prefilterCubeVkImage.cleanup(device);
+
+        brdfLUTVkImage.cleanup(device);
+    }
+
+    void cleanupTexturesForMaterial(Material& mat) {
+        mat.normalMap.vkImage.cleanup(device);
+
+        if (mat.type == Material::Type::LAMBERTIAN) {
+            std::get<LambertianProps>(mat.value).albedo.vkImage.cleanup(device);
+        } else if (mat.type == Material::Type::PBR) {
+            std::get<PbrProps>(mat.value).albedo.vkImage.cleanup(device);
+            std::get<PbrProps>(mat.value).metalness.vkImage.cleanup(device);
+            std::get<PbrProps>(mat.value).roughness.vkImage.cleanup(device);
         }
     }
 
@@ -3098,15 +3148,7 @@ private:
             cleanupSwapChain();
         }
 
-        normalVkImage.cleanup(device);
-        albedoVkImage.cleanup(device);
-        metallicVkImage.cleanup(device);
-        roughnessVkImage.cleanup(device);
-
-        irradianceCubeVkImage.cleanup(device);
-        prefilterCubeVkImage.cleanup(device);
-
-        brdfLUTVkImage.cleanup(device);
+        cleanupMaterialTextures();
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);
