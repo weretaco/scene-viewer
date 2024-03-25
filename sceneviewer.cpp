@@ -1670,6 +1670,12 @@ private:
         }
         std::cout << std::endl;
 
+        std::cout << std::endl << "LISTING SCENE LIGHTS" << std::endl;
+        for (Light& light : gameScene.lights) {
+            light.print();
+        }
+        std::cout << std::endl;
+
         for (Mesh& mesh : gameScene.meshes) {
             Material::Type matType = mesh.material.has_value()
                 ? gameScene.materials[mesh.material.value()].type
@@ -1787,6 +1793,14 @@ private:
 
                     if (obj.count("mesh") > 0) {
                         scene.nodes.back().mesh = static_cast<uint16_t>(std::get<float>(obj["mesh"]->value));
+                    }
+
+                    if (obj.count("environment") > 0) {
+                        scene.nodes.back().environment = static_cast<uint16_t>(std::get<float>(obj["environment"]->value));
+                    }
+
+                    if (obj.count("light") > 0) {
+                        scene.nodes.back().light = static_cast<uint16_t>(std::get<float>(obj["light"]->value));
                     }
                 } else if (sceneType == "MESH") {
                     std::cout << "MESH NODE..." << std::endl;
@@ -1915,7 +1929,6 @@ private:
                     scene.materials.back().normalMap = parseTextureFromJson<glm::vec3>(obj, "normalMap", { 0.f, 0.f, 1.f });
                     scene.materials.back().displacementMap = parseTextureFromJson<float>(obj, "displacementMap", 0.f);
 
-                    // TODO: Create 1x1 texture maps when the material properties just have one value
                     if (obj.count("simple") > 0) {
                         scene.materials.back().type = Material::Type::SIMPLE;
                     } else if (obj.count("environment") > 0) {
@@ -1967,6 +1980,69 @@ private:
                     std::cout << "LIGHT NODE..." << std::endl;
                     scene.typeIndices.push_back(static_cast<uint16_t>(scene.lights.size()));
                     scene.lights.push_back({});
+
+                    scene.lights.back().name = std::get<std::string>(obj["name"]->value);
+
+                    if (obj.count("tint") > 0) {
+                        std::vector<JsonLoader::JsonNode*>& tintArray = *std::get<std::vector<JsonLoader::JsonNode*>*>(obj["tint"]->value);
+
+                        scene.lights.back().tint = {
+                            std::get<float>(tintArray[0]->value),
+                            std::get<float>(tintArray[1]->value),
+                            std::get<float>(tintArray[2]->value)
+                        };
+                    } else {
+                        scene.lights.back().tint = glm::vec3(1.f, 1.f, 1.f);
+                    }
+
+                    if (obj.count("shadow") > 0) {
+                        scene.lights.back().shadow = std::get<float>(obj["shadow"]->value);
+                    } else {
+                        scene.lights.back().shadow = 0.f;
+                    }
+
+                    if (obj.count("sun") > 0) {
+                        scene.lights.back().type = Light::Type::SUN;
+
+                        std::map<std::string, JsonLoader::JsonNode*>& sunObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["sun"]->value);
+
+                        scene.lights.back().value = SunLight {
+                            std::get<float>(sunObj["angle"]->value),
+                            std::get<float>(sunObj["strength"]->value)
+                        };
+                    } else if (obj.count("sphere") > 0) {
+                        scene.lights.back().type = Light::Type::SPHERE;
+
+                        std::map<std::string, JsonLoader::JsonNode*>& sphereObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["sphere"]->value);
+
+                        std::optional<float> limit = std::nullopt;
+                        if (sphereObj.count("limit") > 0) {
+                            limit =  std::get<float>(sphereObj["limit"]->value);
+                        }
+
+                        scene.lights.back().value = SphereLight {
+                            std::get<float>(sphereObj["radius"]->value),
+                            std::get<float>(sphereObj["power"]->value),
+                            limit
+                        };
+                    } else if (obj.count("spot") > 0) {
+                        scene.lights.back().type = Light::Type::SPOT;
+
+                        std::map<std::string, JsonLoader::JsonNode*>& spotObj = *std::get<std::map<std::string, JsonLoader::JsonNode*>*>(obj["spot"]->value);
+
+                        std::optional<float> limit = std::nullopt;
+                        if (spotObj.count("limit") > 0) {
+                            limit =  std::get<float>(spotObj["limit"]->value);
+                        }
+
+                        scene.lights.back().value = SpotLight {
+                            std::get<float>(spotObj["radius"]->value),
+                            std::get<float>(spotObj["power"]->value),
+                            limit,
+                            std::get<float>(spotObj["fov"]->value),
+                            std::get<float>(spotObj["blend"]->value)
+                        };
+                    }
                 }
             } else {
                 std::cout << "UNEXPECTED JSON TYPE!" << std::endl;
@@ -1994,6 +2070,10 @@ private:
 
             if (sceneNode.environment.has_value()) {
                 sceneNode.environment = scene.typeIndices[sceneNode.environment.value()];
+            }
+
+            if (sceneNode.light.has_value()) {
+                sceneNode.light = scene.typeIndices[sceneNode.light.value()];
             }
         }
 
@@ -2440,6 +2520,8 @@ private:
 
         // TODO: Might need to create multiple irrandiance, prefilter, or brdf textures,
         // but need to do more research to figure that out
+        // TODO: Also the radiance, prefilter, and brdf filepaths probably shouldn't be hard-coded
+        // radiance, at the very least, is specified in the environment json object, and I should
 
         createCubemapImage(
             gameScene.environments.size() > 0
@@ -2454,7 +2536,6 @@ private:
                                             6);
         irradianceCubeVkImage.sampler = createTextureSampler();
 
-        // TODO: Dynamically determine the filename based on util output
         createCubemapImage("scenes/env-cube.png", prefilterCubeVkImage.image, prefilterCubeVkImage.memory);
         prefilterCubeVkImage.imageView = createImageView(prefilterCubeVkImage.image,
                                             VK_IMAGE_VIEW_TYPE_CUBE,
@@ -2463,7 +2544,6 @@ private:
                                             6);
         prefilterCubeVkImage.sampler = createTextureSampler();
 
-        // TODO: Read the filepath from the scene file instead
         createTextureImage("brdflut.png", brdfLUTVkImage);
         brdfLUTVkImage.imageView = createImageView(brdfLUTVkImage.image,
                                             VK_IMAGE_VIEW_TYPE_2D,

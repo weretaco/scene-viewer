@@ -21,6 +21,7 @@ struct Node {
     std::optional<uint16_t> camera;
     std::optional<uint16_t> mesh;
     std::optional<uint16_t> environment;
+    std::optional<uint16_t> light;
 
     void print() {
         std::cout << "Name: " << name << std::endl;
