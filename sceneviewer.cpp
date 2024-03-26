@@ -442,13 +442,7 @@ private:
         createRenderPass();
         createFramebuffers();
 
-        createGraphicsPipeline(colorPipeline, "color");
-        createGraphicsPipeline(texturePipeline, "texture");
-        // TODO; Maybe create a separate pipeline for mirror instead of just using the texture pipeline
-        //createGraphicsPipeline(texturePipeline, "mirror");
-        createGraphicsPipeline(lambertPipeline, "lambert");
-        createGraphicsPipeline(pbrPipeline, "pbr");
-
+        createGraphicsPipelines();
         createMaterialDescriporSets();
 
         createCommandBuffers();
@@ -1027,7 +1021,7 @@ private:
     }
 
     template <typename V>
-    void createGraphicsPipeline(GraphicsPipeline<V>& pipeline, std::string shader) {
+    void createGraphicsPipeline(GraphicsPipeline<V>& pipeline, std::string shader, uint32_t descriptorCount) {
         V::createDescriptorSetLayout(device, pipeline.descriptorSetLayout);
 
         std::vector<char> vertShaderCode = readFile("shaders/" + shader + "-vert.spv");
@@ -1171,12 +1165,12 @@ private:
 
         vkCheckResult(
             vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline.pipeline),
-            "failed to created graphics pipeline");
+            "failed to create graphics pipeline");
 
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
 
-        V::createDescriptorPool(device, pipeline.descriptorPool, static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
+        V::createDescriptorPool(device, pipeline.descriptorPool, descriptorCount);
     }
 
     VkShaderModule createShaderModule(const std::vector<char>& code) {
@@ -2111,6 +2105,44 @@ private:
 
             generateCameraViewMatsInNode(childNode, transform, scene);
         }
+    }
+
+    // Counts the number of materials of each type in the scene,
+    // to determine how many descriptors of each type are needed
+    void createGraphicsPipelines() {
+        std::array<int32_t, 4> materialCounts{ 0, 0, 0, 0 };
+
+        // index 0: Simple
+        // index 1: Environment
+        // index 2: Lambertian
+        // index 3: PBR
+
+        for (Material& mat : gameScene.materials) {
+            if (mat.type == Material::Type::SIMPLE) { // doesn't actually have any combgined image samplers
+                materialCounts[0]++;
+            } else if (mat.type == Material::Type::ENVIRONMENT) {
+                materialCounts[1]++;
+            } else if (mat.type == Material::Type::LAMBERTIAN) {
+                materialCounts[2]++;
+            } else if (mat.type == Material::Type::PBR) {
+                materialCounts[3]++;
+            }
+        }
+
+        for (uint32_t i=0; i<materialCounts.size(); i++) {
+            // invalid to allocate 0 descriptor sets
+            materialCounts[i] = std::max(1, materialCounts[i]);
+            std::cout << "Material Counts [" << i << "]: " << materialCounts[i] << std::endl;
+        }
+
+        // TODO: Currently, we're also allocating space for extra uniform descriptors as well, not just the image samplers
+        // Ideally, we'd only allocate space for a single descriptor per uniform buffer
+        createGraphicsPipeline(colorPipeline, "color", static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * materialCounts[0]));
+        createGraphicsPipeline(texturePipeline, "texture", static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * materialCounts[1]));
+        // TODO; Maybe create a separate pipeline for mirror instead of just using the texture pipeline
+        //createGraphicsPipeline(texturePipeline, "mirror", static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * materialCounts[1]));
+        createGraphicsPipeline(lambertPipeline, "lambert", static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * materialCounts[2]));
+        createGraphicsPipeline(pbrPipeline, "pbr", static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * materialCounts[3]));
     }
 
     void createMaterialDescriporSets() {
